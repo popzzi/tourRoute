@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Tour Route Tool</title>
+
   <style>
     body { margin:0; font-family: system-ui, -apple-system, sans-serif; }
     header { padding:12px 14px; border-bottom:1px solid #eee; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -14,318 +15,213 @@
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
   </style>
 
-  <!-- ✅ TODO 1) 카카오 JS 키 넣기 -->
-  <!-- 핵심: autoload=false + kakao.maps.load()로 "완전 초기화" 보장 -->
+  <!-- 🔑 카카오 JS 키 -->
   <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64&autoload=false"></script>
 </head>
 
 <body>
-  <header>
-    <div class="row">
-      <strong>Tour Route Tool</strong>
+<header>
+  <div class="row">
+    <strong>Tour Route Tool</strong>
 
-      <button id="initBtn">초기화(팀 시트 생성/연결)</button>
-      <button id="openSheetBtn">Stops 시트 열기</button>
-      <button id="recalcBtn">경로 계산(좌표/Legs/Timeline)</button>
+    <button id="initBtn">초기화</button>
+    <button id="openSheetBtn">Stops 시트</button>
+    <button id="recalcBtn">경로 계산</button>
 
-      <select id="daySelect">
-        <option value="">전체 day</option>
-        <option value="1">day 1</option>
-        <option value="2">day 2</option>
-        <option value="3">day 3</option>
-        <option value="4">day 4</option>
-        <option value="5">day 5</option>
-      </select>
+    <select id="daySelect">
+      <option value="">전체 day</option>
+      <option value="1">day 1</option>
+      <option value="2">day 2</option>
+      <option value="3">day 3</option>
+      <option value="4">day 4</option>
+    </select>
 
-      <button id="reloadBtn">지도 새로고침</button>
+    <button id="reloadBtn">지도 새로고침</button>
+    <button id="timelineBtn">타임라인 보기</button>
 
-      <span class="hint" id="hint">SDK 로딩 대기…</span>
+    <span class="hint" id="hint">SDK 로딩 대기…</span>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<!-- ===================== Timeline Modal ===================== -->
+<div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
+  <div style="
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(1000px, calc(100vw - 24px)); max-height:calc(100vh - 24px);
+    background:#fff; border-radius:16px; overflow:hidden;
+    box-shadow:0 12px 30px rgba(0,0,0,.2);">
+
+    <div style="display:flex; gap:10px; align-items:center; padding:12px 14px; border-bottom:1px solid #eee;">
+      <strong id="modalTitle">타임라인</strong>
+      <span id="modalSub" style="font-size:12px; color:#666;"></span>
+      <div style="margin-left:auto; display:flex; gap:8px;">
+        <button id="copyTimelineBtn">복사</button>
+        <button id="closeModalBtn">닫기</button>
+      </div>
     </div>
-  </header>
 
-  <div id="map"></div>
+    <div style="padding:12px 14px; overflow:auto; max-height:calc(100vh - 120px);">
+      <div id="summaryBox" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;"></div>
+      <div id="timelineTableWrap"></div>
+    </div>
+  </div>
+</div>
 
-  <script>
-    // ====== TODO 2) GAS 웹앱 exec URL ======
-    const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec";
+<script>
+/* ===================== CONFIG ===================== */
+const GAS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec';
+const TEAM_TOKEN   = 'tourtool_2025_wjogpgpwglksjw2362dfd';
+const DAY_COLORS   = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1abc9c'];
 
-    // ====== TODO 3) TEAM_API_TOKEN (GAS Script Properties와 동일) ======
-    const TEAM_TOKEN = "tourtool_2025_wjogpgpwglksjw2362dfd";
+/* ===================== DOM ===================== */
+const initBtn = document.getElementById('initBtn');
+const openSheetBtn = document.getElementById('openSheetBtn');
+const recalcBtn = document.getElementById('recalcBtn');
+const reloadBtn = document.getElementById('reloadBtn');
+const timelineBtn = document.getElementById('timelineBtn');
+const daySelect = document.getElementById('daySelect');
+const hint = document.getElementById('hint');
 
-    // day별 라인/라벨 색상
-    const DAY_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12', '#1abc9c', '#e67e22'];
+const modalBackdrop = document.getElementById('modalBackdrop');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const copyTimelineBtn = document.getElementById('copyTimelineBtn');
+const modalTitle = document.getElementById('modalTitle');
+const modalSub = document.getElementById('modalSub');
+const summaryBox = document.getElementById('summaryBox');
+const timelineTableWrap = document.getElementById('timelineTableWrap');
 
-    const initBtn = document.getElementById('initBtn');
-    const openSheetBtn = document.getElementById('openSheetBtn');
-    const recalcBtn = document.getElementById('recalcBtn');
-    const reloadBtn = document.getElementById('reloadBtn');
-    const daySelect = document.getElementById('daySelect');
-    const hint = document.getElementById('hint');
+/* ===================== Utils ===================== */
+function setBusy(b){ [initBtn,openSheetBtn,recalcBtn,reloadBtn,timelineBtn,daySelect].forEach(x=>x.disabled=b); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+function mmToHHMM(m){ const h=Math.floor(m/60), mm=m%60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
+function num(x){ return Number.isFinite(+x)?+x:0; }
 
-    function setBusy(b) {
-      [initBtn, openSheetBtn, recalcBtn, reloadBtn, daySelect].forEach(el => el.disabled = b);
+/* ===================== JSONP ===================== */
+function jsonp(params){
+  return new Promise((resolve,reject)=>{
+    const cb='cb_'+Math.random().toString(36).slice(2);
+    const u=new URL(GAS_EXEC_URL);
+    Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+    u.searchParams.set('callback',cb);
+    const s=document.createElement('script');
+    window[cb]=d=>{ delete window[cb]; s.remove(); resolve(d); };
+    s.onerror=()=>{ delete window[cb]; s.remove(); reject('jsonp error'); };
+    s.src=u.toString();
+    document.head.appendChild(s);
+  });
+}
+
+/* ===================== Map ===================== */
+let map=null, markers=[], labels=[], lines=[];
+function clearMap(){
+  markers.forEach(m=>m.setMap(null)); labels.forEach(l=>l.setMap(null)); lines.forEach(l=>l.setMap(null));
+  markers=[]; labels=[]; lines=[];
+}
+function dayColor(d){ return DAY_COLORS[(num(d)-1)%DAY_COLORS.length]; }
+
+/* ===================== Timeline ===================== */
+function buildTimeline(stops, legs){
+  const byDay={}, legsByDay={};
+  stops.forEach(s=>(byDay[s.day]??=[]).push(s));
+  legs.forEach(l=>(legsByDay[l.day]??=[]).push(l));
+  Object.values(byDay).forEach(a=>a.sort((x,y)=>num(x.seq)-num(y.seq)));
+
+  const rows=[];
+  Object.keys(byDay).sort((a,b)=>a-b).forEach(d=>{
+    let cum=0;
+    byDay[d].forEach((s,i)=>{
+      let drive=0, dist=0;
+      if(i>0){
+        const p=byDay[d][i-1];
+        const l=(legsByDay[d]||[]).find(x=>x.from_seq==p.seq&&x.to_seq==s.seq);
+        if(l){ drive=num(l.drive_min_buf)||num(l.drive_min); dist=num(l.dist_km); cum+=drive; }
+      }
+      rows.push({day:d, seq:s.seq, place:s.name, drive, dist, cum});
+    });
+  });
+  return rows;
+}
+
+/* ===================== Modal ===================== */
+function openModal(){ modalBackdrop.style.display='block'; }
+function closeModal(){ modalBackdrop.style.display='none'; }
+modalBackdrop.onclick=e=>{ if(e.target===modalBackdrop) closeModal(); };
+closeModalBtn.onclick=closeModal;
+
+/* ===================== Actions ===================== */
+async function loadMap(){
+  setBusy(true);
+  try{
+    const day=daySelect.value||'';
+    const data=await jsonp({action:'data',day,token:TEAM_TOKEN});
+    if(!data.ok) return alert(data.error);
+
+    const route=await jsonp({action:'route',day,token:TEAM_TOKEN});
+    const byDay={};
+    data.stops.forEach(s=>(byDay[s.day]??=[]).push(s));
+
+    if(!map){
+      map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(data.stops[0].lat,data.stops[0].lng),level:7});
     }
 
-    function escapeHtml(s) {
-      return String(s || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-    }
+    clearMap();
+    const bounds=new kakao.maps.LatLngBounds();
 
-    // ---- JSONP helper (No CORS) ----
-    function jsonp(params, timeoutMs = 20000) {
-      return new Promise((resolve, reject) => {
-        const cbName = '__cb_' + Math.random().toString(36).slice(2);
-        const url = new URL(GAS_EXEC_URL);
-        Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-        url.searchParams.set('callback', cbName);
-
-        const script = document.createElement('script');
-        let timer = null;
-
-        window[cbName] = (data) => { cleanup(); resolve(data); };
-
-        function cleanup() {
-          if (timer) clearTimeout(timer);
-          try { delete window[cbName]; } catch(_) { window[cbName] = undefined; }
-          if (script && script.parentNode) script.parentNode.removeChild(script);
-        }
-
-        timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
-        script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
-        script.src = url.toString();
-        document.head.appendChild(script);
+    Object.keys(byDay).forEach(d=>{
+      const color=dayColor(d);
+      const pts=(route.ok&&route.pathsByDay[d])||byDay[d];
+      const path=pts.map(p=>new kakao.maps.LatLng(p.lat,p.lng));
+      if(path.length>1){
+        const pl=new kakao.maps.Polyline({path,strokeWeight:6,strokeColor:color,strokeOpacity:.85});
+        pl.setMap(map); lines.push(pl);
+      }
+      byDay[d].forEach(s=>{
+        const pos=new kakao.maps.LatLng(s.lat,s.lng);
+        const m=new kakao.maps.Marker({position:pos,map});
+        markers.push(m);
+        const label=new kakao.maps.CustomOverlay({
+          position:pos,yAnchor:1.6,
+          content:`<div style="background:#fff;border:1px solid #ddd;border-radius:12px;padding:2px 6px;font-size:11px;">
+            <b style="color:${color}">${s.seq}</b> ${escapeHtml(s.name)}</div>`
+        });
+        label.setMap(map); labels.push(label);
+        bounds.extend(pos);
       });
-    }
-
-    // ---- Kakao Map state ----
-    let map = null;
-    let markers = [];
-    let labelOverlays = [];
-    let polylines = [];
-
-    function clearOverlays() {
-      markers.forEach(m => m.setMap(null));
-      markers = [];
-      labelOverlays.forEach(o => o.setMap(null));
-      labelOverlays = [];
-      polylines.forEach(p => p.setMap(null));
-      polylines = [];
-    }
-
-    function dayColor(dayStr) {
-      const d = Number(dayStr || 1);
-      return DAY_COLORS[(d - 1) % DAY_COLORS.length];
-    }
-
-    function addStopMarkerAndLabel(stop, color) {
-      const pos = new kakao.maps.LatLng(stop.lat, stop.lng);
-
-      // 마커(기본)
-      const marker = new kakao.maps.Marker({ position: pos, map });
-      markers.push(marker);
-
-      // 항상 표시되는 작은 라벨 (번호 + 이름)
-      const content = `
-        <div style="
-          display:inline-flex; gap:6px; align-items:center;
-          padding:2px 6px; border-radius:10px;
-          background:rgba(255,255,255,0.92);
-          border:1px solid rgba(0,0,0,0.15);
-          box-shadow:0 1px 3px rgba(0,0,0,0.1);
-          font-size:11px; line-height:1.2; white-space:nowrap;">
-          <span style="
-            display:inline-flex; align-items:center; justify-content:center;
-            width:18px; height:18px; border-radius:9px;
-            color:#fff; background:${color}; font-weight:700;">
-            ${stop.seq}
-          </span>
-          <span style="max-width:160px; overflow:hidden; text-overflow:ellipsis;">
-            ${escapeHtml(stop.name)}
-          </span>
-        </div>
-      `;
-
-      const overlay = new kakao.maps.CustomOverlay({
-        content,
-        position: pos,
-        yAnchor: 1.6,
-        xAnchor: 0.5
-      });
-      overlay.setMap(map);
-      labelOverlays.push(overlay);
-
-      // 클릭 시 간단 상세
-      kakao.maps.event.addListener(marker, 'click', () => {
-        const msg = [
-          `${stop.seq}. ${stop.name}`,
-          stop.query ? `검색어: ${stop.query}` : '',
-          stop.geocode_status ? `상태: ${stop.geocode_status}` : ''
-        ].filter(Boolean).join('\n');
-        alert(msg);
-      });
-    }
-
-    function drawDayPolyline(pathPoints, color) {
-      if (!pathPoints || pathPoints.length < 2) return;
-
-      const linePath = pathPoints.map(p => new kakao.maps.LatLng(p.lat, p.lng));
-      const pl = new kakao.maps.Polyline({
-        path: linePath,
-        strokeWeight: 6,
-        strokeOpacity: 0.85,
-        strokeStyle: 'solid',
-        strokeColor: color
-      });
-      pl.setMap(map);
-      polylines.push(pl);
-    }
-
-    function groupStopsByDay(stops) {
-      const m = {};
-      for (const s of (stops || [])) {
-        const d = String(s.day || 1);
-        (m[d] ||= []).push(s);
-      }
-      Object.values(m).forEach(arr => arr.sort((a,b)=>Number(a.seq)-Number(b.seq)));
-      return m;
-    }
-
-    // ---- Main: load + render ----
-    async function loadMap() {
-      setBusy(true);
-      try {
-        const day = daySelect.value || '';
-
-        // 1) Stops
-        const data = await jsonp({ action: 'data', day, token: TEAM_TOKEN });
-        if (!data.ok) {
-          alert(data.error || '데이터 로드 실패\n(먼저 초기화/경로계산을 해주세요)');
-          return;
-        }
-
-        const stops = data.stops || [];
-        if (!stops.length) {
-          alert('좌표가 있는 Stops가 없습니다.');
-          return;
-        }
-
-        // map init/center
-        const center = new kakao.maps.LatLng(stops[0].lat, stops[0].lng);
-        if (!map) map = new kakao.maps.Map(document.getElementById('map'), { center, level: 7 });
-        else map.setCenter(center);
-
-        clearOverlays();
-
-        // 2) route(도로 라인) - GAS route endpoint
-        const route = await jsonp({ action: 'route', day, token: TEAM_TOKEN });
-        const routeOk = !!(route && route.ok && route.pathsByDay);
-        console.log('route result:', route);
-
-        const stopsByDay = groupStopsByDay(stops);
-        const days = Object.keys(stopsByDay).sort((a,b)=>Number(a)-Number(b));
-
-        const bounds = new kakao.maps.LatLngBounds();
-
-        for (const d of days) {
-          const color = dayColor(d);
-
-          // (a) 라인: route 우선, 실패 시 직선 fallback
-          const pts = routeOk ? route.pathsByDay[d] : null;
-
-          if (pts && pts.length >= 2) {
-            drawDayPolyline(pts, color);
-            pts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
-          } else {
-            const linePts = stopsByDay[d].map(s => ({ lat: s.lat, lng: s.lng }));
-            drawDayPolyline(linePts, color);
-            linePts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
-          }
-
-          // (b) 마커 + 라벨
-          stopsByDay[d].forEach(s => {
-            addStopMarkerAndLabel(s, color);
-            bounds.extend(new kakao.maps.LatLng(s.lat, s.lng));
-          });
-        }
-
-        map.setBounds(bounds);
-
-        if (!routeOk) {
-          hint.textContent = `⚠️ route 실패 → 직선 대체 (${route && route.error ? route.error : 'no paths'})`;
-        } else {
-          const anyDay = Object.keys(route.pathsByDay || {})[0];
-          const n = anyDay ? (route.pathsByDay[anyDay] || []).length : 0;
-          hint.textContent = `✅ 도로 라인 OK (sample points=${n})`;
-        }
-
-      } catch (e) {
-        console.error(e);
-        alert(e.message || String(e));
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function handleInit() {
-      setBusy(true);
-      try {
-        const j = await jsonp({ action: 'init', token: TEAM_TOKEN });
-        if (!j.ok) return alert(j.error || '초기화 실패');
-        alert(`팀 공용 시트 연결 완료!\n\n${j.name}\n${j.spreadsheetUrl}`);
-      } catch (e) {
-        alert(e.message || String(e));
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function handleRecalc() {
-      setBusy(true);
-      try {
-        const j = await jsonp({ action: 'recalc', token: TEAM_TOKEN });
-        if (!j.ok) return alert(j.error || '계산 실패');
-        alert('완료! 이제 "지도 새로고침"을 누르세요.');
-      } catch (e) {
-        alert(e.message || String(e));
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    // ---- UI events ----
-    initBtn.addEventListener('click', handleInit);
-    recalcBtn.addEventListener('click', handleRecalc);
-    reloadBtn.addEventListener('click', () => loadMap());
-    daySelect.addEventListener('change', () => loadMap());
-
-    openSheetBtn.addEventListener('click', async () => {
-      setBusy(true);
-      try {
-        const j = await jsonp({ action: 'init', token: TEAM_TOKEN });
-        if (!j.ok) return alert(j.error || '시트 열기 실패');
-        window.open(j.spreadsheetUrl, '_blank');
-      } catch (e) {
-        alert(e.message || String(e));
-      } finally {
-        setBusy(false);
-      }
     });
 
-    // ✅ 중요: SDK "완전 초기화" 후에만 loadMap 실행
-    window.addEventListener('load', () => {
-      if (!window.kakao || !kakao.maps) {
-        hint.textContent = '⚠️ Kakao Maps SDK가 로드되지 않았습니다 (도메인 등록/JS 키 확인)';
-        return;
-      }
-      kakao.maps.load(() => {
-        hint.textContent = '✅ Kakao SDK 준비 완료';
-        loadMap();
-      });
-    });
-  </script>
+    map.setBounds(bounds);
+    hint.textContent='✅ 지도 표시 완료';
+  }finally{ setBusy(false); }
+}
+
+timelineBtn.onclick=async()=>{
+  setBusy(true);
+  try{
+    const day=daySelect.value||'';
+    const d=await jsonp({action:'data',day,token:TEAM_TOKEN});
+    const rows=buildTimeline(d.stops,d.legs);
+    const totalDrive=rows.reduce((a,r)=>a+num(r.drive),0);
+    const totalDist=rows.reduce((a,r)=>a+num(r.dist),0);
+
+    summaryBox.innerHTML=`<div><b>총 이동시간</b><br>${mmToHHMM(totalDrive)} (${totalDrive}분)</div>
+                          <div><b>총 이동거리</b><br>${totalDist.toFixed(1)} km</div>`;
+
+    timelineTableWrap.innerHTML=`<table border="1" width="100%">
+      <tr><th>day</th><th>순서</th><th>장소</th><th>이동(분)</th><th>누적(분)</th></tr>
+      ${rows.map(r=>`<tr><td>${r.day}</td><td>${r.seq}</td><td>${escapeHtml(r.place)}</td>
+        <td align="right">${r.drive||''}</td><td align="right">${r.cum}</td></tr>`).join('')}
+    </table>`;
+
+    openModal();
+  }finally{ setBusy(false); }
+};
+
+/* ===================== Init ===================== */
+window.onload=()=>{
+  kakao.maps.load(()=>{ hint.textContent='✅ Kakao SDK 준비 완료'; loadMap(); });
+};
+</script>
 </body>
 </html>
