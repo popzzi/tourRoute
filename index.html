@@ -196,7 +196,6 @@
 
     // ---- Main: load + render ----
     async function loadMap() {
-      console.log('route result:', route);
       setBusy(true);
       try {
         const day = daySelect.value || '';
@@ -224,6 +223,7 @@
         // 2) route(도로 라인) - GAS route endpoint
         const route = await jsonp({ action: 'route', day, token: TEAM_TOKEN });
         const routeOk = !!(route && route.ok && route.pathsByDay);
+        console.log('route result:', route);
 
         const stopsByDay = groupStopsByDay(stops);
         const days = Object.keys(stopsByDay).sort((a,b)=>Number(a)-Number(b));
