@@ -286,27 +286,30 @@
         (stopsByDay[d] ||= []).push(s);
       });
       Object.values(stopsByDay).forEach(arr => arr.sort((a,b)=>asNum(a.seq)-asNum(b.seq)));
-
+    
       const legsByDay = {};
       (legs || []).forEach(l => {
         const d = String(l.day || 1);
         (legsByDay[d] ||= []).push(l);
       });
-
+    
       const rows = [];
       const days = Object.keys(stopsByDay).sort((a,b)=>asNum(a)-asNum(b));
-
+    
       for (const d of days) {
         const sArr = stopsByDay[d];
         const lArr = legsByDay[d] || [];
-
+    
         let cumDrive = 0;
-
+        let cumStay = 0;
+        let cumTotal = 0;
+    
         for (let i = 0; i < sArr.length; i++) {
           const cur = sArr[i];
+    
           let driveMin = 0;
           let distKm = 0;
-
+    
           if (i > 0) {
             const prev = sArr[i - 1];
             const leg = lArr.find(x => asNum(x.from_seq) === asNum(prev.seq) && asNum(x.to_seq) === asNum(cur.seq));
@@ -314,31 +317,43 @@
             distKm = leg ? asNum(leg.dist_km) : 0;
             cumDrive += driveMin;
           }
-
+    
+          const stayMin = asNum(cur.stay_min);   // ✅ GAS에서 내려준 stay_min 사용
+          cumStay += stayMin;
+    
+          cumTotal = cumDrive + cumStay;
+    
           rows.push({
             day: d,
             seq: cur.seq,
             place: cur.name,
+            stayMin,
             driveMin,
             distKm,
-            cumDrive
+            cumDrive,
+            cumStay,
+            cumTotal
           });
         }
       }
       return rows;
     }
 
+
     function openModal() { modalBackdrop.style.display = 'block'; }
     function closeModal() { modalBackdrop.style.display = 'none'; }
     modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
     closeModalBtn.addEventListener('click', closeModal);
 
-    function renderSummaryCards({ totalDriveMin, totalDistKm, note }) {
+    function renderSummaryCards({ totalDriveMin, totalStayMin, totalTotalMin, totalDistKm, note }) { 
       summaryBox.innerHTML = '';
       const items = [
+        { label: '총 소요시간(이동+체류)', value: `${mmToHHMM(totalTotalMin)} (${totalTotalMin}분)` },
         { label: '총 이동시간', value: `${mmToHHMM(totalDriveMin)} (${totalDriveMin}분)` },
+        { label: '총 체류시간', value: `${mmToHHMM(totalStayMin)} (${totalStayMin}분)` },
         { label: '총 이동거리', value: `${(Math.round(totalDistKm*10)/10).toFixed(1)} km` },
       ];
+
 
       items.forEach(it => {
         const div = document.createElement('div');
@@ -360,23 +375,27 @@
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead>
             <tr style="background:#f6f6f6;">
-              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">day</th>
-              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">순서</th>
-              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">장소</th>
-              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">이동(분)</th>
-              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">거리(km)</th>
-              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">누적 이동(분)</th>
+              <th>day</th>
+              <th>순서</th>
+              <th>장소</th>
+              <th style="text-align:right;">이동(분)</th>
+              <th style="text-align:right;">체류(분)</th>
+              <th style="text-align:right;">누적 이동</th>
+              <th style="text-align:right;">누적 체류</th>
+              <th style="text-align:right;">⭐ 누적 총</th>
             </tr>
           </thead>
           <tbody>
             ${rows.map(r => `
               <tr>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.day)}</td>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.seq)}</td>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.place)}</td>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.driveMin ? r.driveMin : ''}</td>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.distKm ? (Math.round(r.distKm*10)/10).toFixed(1) : ''}</td>
-                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.cumDrive}</td>
+                <td>${r.day}</td>
+                <td>${r.seq}</td>
+                <td>${escapeHtml(r.place)}</td>
+                <td style="text-align:right;">${r.driveMin || ''}</td>
+                <td style="text-align:right;">${r.stayMin || ''}</td>
+                <td style="text-align:right;">${r.cumDrive}</td>
+                <td style="text-align:right;">${r.cumStay}</td>
+                <td style="text-align:right;"><b>${r.cumTotal}</b></td>
               </tr>
             `).join('')}
           </tbody>
@@ -384,6 +403,36 @@
       `;
       timelineTableWrap.innerHTML = html;
     }
+
+    // function renderTimelineTable(rows) {
+    //   const html = `
+    //     <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    //       <thead>
+    //         <tr style="background:#f6f6f6;">
+    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">day</th>
+    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">순서</th>
+    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">장소</th>
+    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">이동(분)</th>
+    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">거리(km)</th>
+    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">누적 이동(분)</th>
+    //         </tr>
+    //       </thead>
+    //       <tbody>
+    //         ${rows.map(r => `
+    //           <tr>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.day)}</td>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.seq)}</td>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.place)}</td>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.driveMin ? r.driveMin : ''}</td>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.distKm ? (Math.round(r.distKm*10)/10).toFixed(1) : ''}</td>
+    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.cumDrive}</td>
+    //           </tr>
+    //         `).join('')}
+    //       </tbody>
+    //     </table>
+    //   `;
+    //   timelineTableWrap.innerHTML = html;
+    // }
 
     function buildTimelineClipboardText(rows) {
       // 엑셀/시트/노션에 붙여넣기 좋은 TSV
@@ -531,14 +580,19 @@
         const rows = buildTimelineRowsFromData(data.stops || [], data.legs || []);
         const totalDriveMin = rows.reduce((acc, r) => acc + asNum(r.driveMin), 0);
         const totalDistKm = rows.reduce((acc, r) => acc + asNum(r.distKm), 0);
+        const totalStayMin  = rows.reduce((acc, r) => acc + asNum(r.stayMin), 0);
+        const totalTotalMin = totalDriveMin + totalStayMin;
+
 
         modalTitle.textContent = '타임라인';
         modalSub.textContent = `day=${day || 'ALL'} · stops=${(data.stops||[]).length}`;
 
         renderSummaryCards({
           totalDriveMin,
+          totalStayMin,
+          totalTotalMin,
           totalDistKm,
-          note: '※ 현재 팝업은 이동시간/거리 중심입니다. (체류시간 포함 총 소요시간은 apiData에 stay_min 추가 시 반영 가능)'
+          note: ''
         });
 
         renderTimelineTable(rows);
