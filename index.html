@@ -196,6 +196,7 @@
 
     // ---- Main: load + render ----
     async function loadMap() {
+      console.log('route result:', route);
       setBusy(true);
       try {
         const day = daySelect.value || '';
@@ -254,10 +255,13 @@
         map.setBounds(bounds);
 
         if (!routeOk) {
-          hint.textContent = `⚠️ 도로 라인 로드 실패 → 직선 대체 (${route && route.error ? route.error : ''})`;
+          hint.textContent = `⚠️ route 실패 → 직선 대체 (${route && route.error ? route.error : 'no paths'})`;
         } else {
-          hint.textContent = `✅ Kakao 도로 라인 | day=${day || 'ALL'} | stops=${stops.length}`;
+          const anyDay = Object.keys(route.pathsByDay || {})[0];
+          const n = anyDay ? (route.pathsByDay[anyDay] || []).length : 0;
+          hint.textContent = `✅ 도로 라인 OK (sample points=${n})`;
         }
+
       } catch (e) {
         console.error(e);
         alert(e.message || String(e));
