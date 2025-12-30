@@ -12,93 +12,57 @@
     button, select { padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer; }
     button:disabled, select:disabled { opacity:.5; cursor:not-allowed; }
     .hint { color:#666; font-size:12px; margin-left:auto; }
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
   </style>
 
-  <!-- 🔑 카카오 JS 키 -->
   <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64&autoload=false"></script>
 </head>
 
 <body>
 <header>
-  <div class="row">
-    <strong>Tour Route Tool</strong>
+  <strong>Tour Route Tool</strong>
 
-    <button id="initBtn">초기화</button>
-    <button id="openSheetBtn">Stops 시트</button>
-    <button id="recalcBtn">경로 계산</button>
+  <button id="initBtn">초기화</button>
+  <button id="openSheetBtn">Stops 시트</button>
+  <button id="recalcBtn">경로 계산</button>
 
-    <select id="daySelect">
-      <option value="">전체 day</option>
-      <option value="1">day 1</option>
-      <option value="2">day 2</option>
-      <option value="3">day 3</option>
-      <option value="4">day 4</option>
-    </select>
+  <select id="daySelect">
+    <option value="">전체 day</option>
+  </select>
 
-    <button id="reloadBtn">지도 새로고침</button>
-    <button id="timelineBtn">타임라인 보기</button>
+  <button id="reloadBtn">지도 새로고침</button>
+  <button id="timelineBtn">타임라인 보기</button>
 
-    <span class="hint" id="hint">SDK 로딩 대기…</span>
-  </div>
+  <span class="hint" id="hint">SDK 로딩 대기…</span>
 </header>
 
 <div id="map"></div>
 
-<!-- ===================== Timeline Modal ===================== -->
+<!-- ===== Timeline Modal ===== -->
 <div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
-  <div style="
-    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:min(1000px, calc(100vw - 24px)); max-height:calc(100vh - 24px);
-    background:#fff; border-radius:16px; overflow:hidden;
-    box-shadow:0 12px 30px rgba(0,0,0,.2);">
-
-    <div style="display:flex; gap:10px; align-items:center; padding:12px 14px; border-bottom:1px solid #eee;">
-      <strong id="modalTitle">타임라인</strong>
-      <span id="modalSub" style="font-size:12px; color:#666;"></span>
-      <div style="margin-left:auto; display:flex; gap:8px;">
+  <div style="background:#fff; width:90%; max-width:1000px; margin:5vh auto; border-radius:14px; padding:12px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <strong>타임라인</strong>
+      <div style="margin-left:auto;">
         <button id="copyTimelineBtn">복사</button>
-        <button id="closeModalBtn">닫기</button>
+        <button onclick="closeModal()">닫기</button>
       </div>
     </div>
-
-    <div style="padding:12px 14px; overflow:auto; max-height:calc(100vh - 120px);">
-      <div id="summaryBox" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;"></div>
-      <div id="timelineTableWrap"></div>
-    </div>
+    <div id="summaryBox" style="margin:10px 0;"></div>
+    <div id="timelineTableWrap"></div>
   </div>
 </div>
 
 <script>
-/* ===================== CONFIG ===================== */
 const GAS_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec';
-const TEAM_TOKEN   = 'tourtool_2025_wjogpgpwglksjw2362dfd';
-const DAY_COLORS   = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1abc9c'];
+const TEAM_TOKEN = 'tourtool_2025_wjogpgpwglksjw2362dfd';
 
-/* ===================== DOM ===================== */
-const initBtn = document.getElementById('initBtn');
-const openSheetBtn = document.getElementById('openSheetBtn');
-const recalcBtn = document.getElementById('recalcBtn');
-const reloadBtn = document.getElementById('reloadBtn');
-const timelineBtn = document.getElementById('timelineBtn');
 const daySelect = document.getElementById('daySelect');
-const hint = document.getElementById('hint');
-
+const timelineBtn = document.getElementById('timelineBtn');
 const modalBackdrop = document.getElementById('modalBackdrop');
-const closeModalBtn = document.getElementById('closeModalBtn');
-const copyTimelineBtn = document.getElementById('copyTimelineBtn');
-const modalTitle = document.getElementById('modalTitle');
-const modalSub = document.getElementById('modalSub');
 const summaryBox = document.getElementById('summaryBox');
 const timelineTableWrap = document.getElementById('timelineTableWrap');
+const copyTimelineBtn = document.getElementById('copyTimelineBtn');
 
-/* ===================== Utils ===================== */
-function setBusy(b){ [initBtn,openSheetBtn,recalcBtn,reloadBtn,timelineBtn,daySelect].forEach(x=>x.disabled=b); }
-function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
-function mmToHHMM(m){ const h=Math.floor(m/60), mm=m%60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
-function num(x){ return Number.isFinite(+x)?+x:0; }
-
-/* ===================== JSONP ===================== */
 function jsonp(params){
   return new Promise((resolve,reject)=>{
     const cb='cb_'+Math.random().toString(36).slice(2);
@@ -107,120 +71,49 @@ function jsonp(params){
     u.searchParams.set('callback',cb);
     const s=document.createElement('script');
     window[cb]=d=>{ delete window[cb]; s.remove(); resolve(d); };
-    s.onerror=()=>{ delete window[cb]; s.remove(); reject('jsonp error'); };
+    s.onerror=()=>{ delete window[cb]; s.remove(); reject(); };
     s.src=u.toString();
     document.head.appendChild(s);
   });
 }
 
-/* ===================== Map ===================== */
-let map=null, markers=[], labels=[], lines=[];
-function clearMap(){
-  markers.forEach(m=>m.setMap(null)); labels.forEach(l=>l.setMap(null)); lines.forEach(l=>l.setMap(null));
-  markers=[]; labels=[]; lines=[];
-}
-function dayColor(d){ return DAY_COLORS[(num(d)-1)%DAY_COLORS.length]; }
-
-/* ===================== Timeline ===================== */
-function buildTimeline(stops, legs){
-  const byDay={}, legsByDay={};
-  stops.forEach(s=>(byDay[s.day]??=[]).push(s));
-  legs.forEach(l=>(legsByDay[l.day]??=[]).push(l));
-  Object.values(byDay).forEach(a=>a.sort((x,y)=>num(x.seq)-num(y.seq)));
-
-  const rows=[];
-  Object.keys(byDay).sort((a,b)=>a-b).forEach(d=>{
-    let cum=0;
-    byDay[d].forEach((s,i)=>{
-      let drive=0, dist=0;
-      if(i>0){
-        const p=byDay[d][i-1];
-        const l=(legsByDay[d]||[]).find(x=>x.from_seq==p.seq&&x.to_seq==s.seq);
-        if(l){ drive=num(l.drive_min_buf)||num(l.drive_min); dist=num(l.dist_km); cum+=drive; }
-      }
-      rows.push({day:d, seq:s.seq, place:s.name, drive, dist, cum});
-    });
-  });
-  return rows;
-}
-
-/* ===================== Modal ===================== */
-function openModal(){ modalBackdrop.style.display='block'; }
 function closeModal(){ modalBackdrop.style.display='none'; }
-modalBackdrop.onclick=e=>{ if(e.target===modalBackdrop) closeModal(); };
-closeModalBtn.onclick=closeModal;
 
-/* ===================== Actions ===================== */
-async function loadMap(){
-  setBusy(true);
-  try{
-    const day=daySelect.value||'';
-    const data=await jsonp({action:'data',day,token:TEAM_TOKEN});
-    if(!data.ok) return alert(data.error);
-
-    const route=await jsonp({action:'route',day,token:TEAM_TOKEN});
-    const byDay={};
-    data.stops.forEach(s=>(byDay[s.day]??=[]).push(s));
-
-    if(!map){
-      map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(data.stops[0].lat,data.stops[0].lng),level:7});
-    }
-
-    clearMap();
-    const bounds=new kakao.maps.LatLngBounds();
-
-    Object.keys(byDay).forEach(d=>{
-      const color=dayColor(d);
-      const pts=(route.ok&&route.pathsByDay[d])||byDay[d];
-      const path=pts.map(p=>new kakao.maps.LatLng(p.lat,p.lng));
-      if(path.length>1){
-        const pl=new kakao.maps.Polyline({path,strokeWeight:6,strokeColor:color,strokeOpacity:.85});
-        pl.setMap(map); lines.push(pl);
-      }
-      byDay[d].forEach(s=>{
-        const pos=new kakao.maps.LatLng(s.lat,s.lng);
-        const m=new kakao.maps.Marker({position:pos,map});
-        markers.push(m);
-        const label=new kakao.maps.CustomOverlay({
-          position:pos,yAnchor:1.6,
-          content:`<div style="background:#fff;border:1px solid #ddd;border-radius:12px;padding:2px 6px;font-size:11px;">
-            <b style="color:${color}">${s.seq}</b> ${escapeHtml(s.name)}</div>`
-        });
-        label.setMap(map); labels.push(label);
-        bounds.extend(pos);
-      });
-    });
-
-    map.setBounds(bounds);
-    hint.textContent='✅ 지도 표시 완료';
-  }finally{ setBusy(false); }
+function buildDaySelect(stops){
+  const days = [...new Set(stops.map(s => String(s.day)))].sort((a,b)=>a-b);
+  daySelect.innerHTML = `<option value="">전체 day</option>` +
+    days.map(d => `<option value="${d}">day ${d}</option>`).join('');
 }
 
-timelineBtn.onclick=async()=>{
-  setBusy(true);
-  try{
-    const day=daySelect.value||'';
-    const d=await jsonp({action:'data',day,token:TEAM_TOKEN});
-    const rows=buildTimeline(d.stops,d.legs);
-    const totalDrive=rows.reduce((a,r)=>a+num(r.drive),0);
-    const totalDist=rows.reduce((a,r)=>a+num(r.dist),0);
+timelineBtn.onclick = async ()=>{
+  const day = daySelect.value || '';
+  const d = await jsonp({ action:'data', day, token:TEAM_TOKEN });
 
-    summaryBox.innerHTML=`<div><b>총 이동시간</b><br>${mmToHHMM(totalDrive)} (${totalDrive}분)</div>
-                          <div><b>총 이동거리</b><br>${totalDist.toFixed(1)} km</div>`;
+  buildDaySelect(d.stops);
 
-    timelineTableWrap.innerHTML=`<table border="1" width="100%">
-      <tr><th>day</th><th>순서</th><th>장소</th><th>이동(분)</th><th>누적(분)</th></tr>
-      ${rows.map(r=>`<tr><td>${r.day}</td><td>${r.seq}</td><td>${escapeHtml(r.place)}</td>
-        <td align="right">${r.drive||''}</td><td align="right">${r.cum}</td></tr>`).join('')}
-    </table>`;
+  let text = 'day\t순서\t장소\t이동(분)\t누적(분)\n';
+  let total = 0;
 
-    openModal();
-  }finally{ setBusy(false); }
+  d.legs.forEach(l=>{
+    text += `${l.day}\t${l.to_seq}\t${l.to_name}\t${l.drive_min_buf}\t${total+=Number(l.drive_min_buf||0)}\n`;
+  });
+
+  summaryBox.innerHTML = `<b>총 이동시간:</b> ${total}분`;
+  timelineTableWrap.innerHTML = `<pre>${text}</pre>`;
+
+  copyTimelineBtn.onclick = async ()=>{
+    await navigator.clipboard.writeText(text);
+    alert('타임라인이 복사되었습니다. (엑셀/시트에 바로 붙여넣기 가능)');
+  };
+
+  modalBackdrop.style.display='block';
 };
 
-/* ===================== Init ===================== */
-window.onload=()=>{
-  kakao.maps.load(()=>{ hint.textContent='✅ Kakao SDK 준비 완료'; loadMap(); });
+window.onload = ()=>{
+  kakao.maps.load(async ()=>{
+    const d = await jsonp({ action:'data', token:TEAM_TOKEN });
+    buildDaySelect(d.stops);
+  });
 };
 </script>
 </body>
