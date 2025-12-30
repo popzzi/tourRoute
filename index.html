@@ -115,12 +115,21 @@
     }
 
     // ---- Kakao SDK ready wait (레이스 제거) ----
-    function waitForKakao(timeoutMs = 12000) {
+    function waitForKakao(timeoutMs = 15000) {
       return new Promise((resolve, reject) => {
         const start = Date.now();
-        (function tick(){
-          if (window.kakao && kakao.maps) return resolve(true);
-          if (Date.now() - start > timeoutMs) return reject(new Error('Kakao SDK load timeout'));
+        (function tick() {
+          if (
+            window.kakao &&
+            kakao.maps &&
+            typeof kakao.maps.LatLng === 'function' &&
+            typeof kakao.maps.Map === 'function'
+          ) {
+            return resolve(true);
+          }
+          if (Date.now() - start > timeoutMs) {
+            return reject(new Error('Kakao Maps SDK not fully initialized'));
+          }
           setTimeout(tick, 150);
         })();
       });
