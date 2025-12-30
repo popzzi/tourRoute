@@ -14,23 +14,9 @@
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
   </style>
 
-  <script>
-    // ====== TODO 1) Kakao JS Key ======
-    window.__KAKAO_JS_KEY__ = '2f4cbe8e415272a7af886adf1944dd64';
-  </script>
-
-  <!-- ✅ SDK는 "정적으로" 로드 (레이스/삽입실패 방지) -->
-  <script>
-    (function loadKakaoSdk(){
-      const k = window.__KAKAO_JS_KEY__;
-      if (!k || k.includes('YOUR_KAKAO_JS_KEY')) return;
-      const s = document.createElement('script');
-      s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(k);
-      s.async = true;
-      s.defer = true;
-      document.head.appendChild(s);
-    })();
-  </script>
+  <!-- ✅ TODO 1) 카카오 JS 키 넣기 -->
+  <!-- 핵심: autoload=false + kakao.maps.load()로 "완전 초기화" 보장 -->
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64&autoload=false"></script>
 </head>
 
 <body>
@@ -66,6 +52,7 @@
     // ====== TODO 3) TEAM_API_TOKEN (GAS Script Properties와 동일) ======
     const TEAM_TOKEN = "tourtool_2025_wjogpgpwglksjw2362dfd";
 
+    // day별 라인/라벨 색상
     const DAY_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12', '#1abc9c', '#e67e22'];
 
     const initBtn = document.getElementById('initBtn');
@@ -114,27 +101,7 @@
       });
     }
 
-    // ---- Kakao SDK ready wait (레이스 제거) ----
-    function waitForKakao(timeoutMs = 15000) {
-      return new Promise((resolve, reject) => {
-        const start = Date.now();
-        (function tick() {
-          if (
-            window.kakao &&
-            kakao.maps &&
-            typeof kakao.maps.LatLng === 'function' &&
-            typeof kakao.maps.Map === 'function'
-          ) {
-            return resolve(true);
-          }
-          if (Date.now() - start > timeoutMs) {
-            return reject(new Error('Kakao Maps SDK not fully initialized'));
-          }
-          setTimeout(tick, 150);
-        })();
-      });
-    }
-
+    // ---- Kakao Map state ----
     let map = null;
     let markers = [];
     let labelOverlays = [];
@@ -157,9 +124,11 @@
     function addStopMarkerAndLabel(stop, color) {
       const pos = new kakao.maps.LatLng(stop.lat, stop.lng);
 
+      // 마커(기본)
       const marker = new kakao.maps.Marker({ position: pos, map });
       markers.push(marker);
 
+      // 항상 표시되는 작은 라벨 (번호 + 이름)
       const content = `
         <div style="
           display:inline-flex; gap:6px; align-items:center;
@@ -188,10 +157,21 @@
       });
       overlay.setMap(map);
       labelOverlays.push(overlay);
+
+      // 클릭 시 간단 상세
+      kakao.maps.event.addListener(marker, 'click', () => {
+        const msg = [
+          `${stop.seq}. ${stop.name}`,
+          stop.query ? `검색어: ${stop.query}` : '',
+          stop.geocode_status ? `상태: ${stop.geocode_status}` : ''
+        ].filter(Boolean).join('\n');
+        alert(msg);
+      });
     }
 
     function drawDayPolyline(pathPoints, color) {
       if (!pathPoints || pathPoints.length < 2) return;
+
       const linePath = pathPoints.map(p => new kakao.maps.LatLng(p.lat, p.lng));
       const pl = new kakao.maps.Polyline({
         path: linePath,
@@ -214,17 +194,16 @@
       return m;
     }
 
+    // ---- Main: load + render ----
     async function loadMap() {
       setBusy(true);
       try {
-        await waitForKakao();
-        hint.textContent = '✅ Kakao SDK 로드됨';
-
         const day = daySelect.value || '';
 
+        // 1) Stops
         const data = await jsonp({ action: 'data', day, token: TEAM_TOKEN });
         if (!data.ok) {
-          alert(data.error || '데이터 로드 실패');
+          alert(data.error || '데이터 로드 실패\n(먼저 초기화/경로계산을 해주세요)');
           return;
         }
 
@@ -234,21 +213,26 @@
           return;
         }
 
+        // map init/center
         const center = new kakao.maps.LatLng(stops[0].lat, stops[0].lng);
         if (!map) map = new kakao.maps.Map(document.getElementById('map'), { center, level: 7 });
         else map.setCenter(center);
 
         clearOverlays();
 
+        // 2) route(도로 라인) - GAS route endpoint
         const route = await jsonp({ action: 'route', day, token: TEAM_TOKEN });
         const routeOk = !!(route && route.ok && route.pathsByDay);
 
         const stopsByDay = groupStopsByDay(stops);
         const days = Object.keys(stopsByDay).sort((a,b)=>Number(a)-Number(b));
+
         const bounds = new kakao.maps.LatLngBounds();
 
         for (const d of days) {
           const color = dayColor(d);
+
+          // (a) 라인: route 우선, 실패 시 직선 fallback
           const pts = routeOk ? route.pathsByDay[d] : null;
 
           if (pts && pts.length >= 2) {
@@ -260,6 +244,7 @@
             linePts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
           }
 
+          // (b) 마커 + 라벨
           stopsByDay[d].forEach(s => {
             addStopMarkerAndLabel(s, color);
             bounds.extend(new kakao.maps.LatLng(s.lat, s.lng));
@@ -269,14 +254,13 @@
         map.setBounds(bounds);
 
         if (!routeOk) {
-          hint.textContent = '⚠️ route 실패 → 직선 대체 (GAS route 확인)';
+          hint.textContent = `⚠️ 도로 라인 로드 실패 → 직선 대체 (${route && route.error ? route.error : ''})`;
         } else {
-          hint.textContent = `✅ 도로 라인 표시 | day=${day || 'ALL'}`;
+          hint.textContent = `✅ Kakao 도로 라인 | day=${day || 'ALL'} | stops=${stops.length}`;
         }
       } catch (e) {
-        // 여기서 timeout이면 거의 401/도메인 미스매치거나 SDK 요청이 차단된 것
-        hint.textContent = '⚠️ Kakao Maps SDK가 로드되지 않았습니다 (도메인 등록/JS 키 확인)';
         console.error(e);
+        alert(e.message || String(e));
       } finally {
         setBusy(false);
       }
@@ -308,10 +292,11 @@
       }
     }
 
+    // ---- UI events ----
     initBtn.addEventListener('click', handleInit);
     recalcBtn.addEventListener('click', handleRecalc);
-    reloadBtn.addEventListener('click', loadMap);
-    daySelect.addEventListener('change', loadMap);
+    reloadBtn.addEventListener('click', () => loadMap());
+    daySelect.addEventListener('change', () => loadMap());
 
     openSheetBtn.addEventListener('click', async () => {
       setBusy(true);
@@ -326,8 +311,17 @@
       }
     });
 
-    // 초기 자동 로드(원하면 주석)
-    loadMap();
+    // ✅ 중요: SDK "완전 초기화" 후에만 loadMap 실행
+    window.addEventListener('load', () => {
+      if (!window.kakao || !kakao.maps) {
+        hint.textContent = '⚠️ Kakao Maps SDK가 로드되지 않았습니다 (도메인 등록/JS 키 확인)';
+        return;
+      }
+      kakao.maps.load(() => {
+        hint.textContent = '✅ Kakao SDK 준비 완료';
+        loadMap();
+      });
+    });
   </script>
 </body>
 </html>
