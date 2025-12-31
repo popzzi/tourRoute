@@ -694,7 +694,7 @@
   initBtn.addEventListener('click', async () => {
     setBusy(true);
     try{
-      const j = await jsonp('init');
+      const j = await jsonp('init', {}, { timeoutMs: 90000 });
       if (!j.ok) return alert(j.error || 'init 실패');
       alert(`팀 시트 연결 완료!\n\n${j.name}\n${j.spreadsheetUrl}`);
     }catch(err){
@@ -707,7 +707,7 @@
   openSheetBtn.addEventListener('click', async () => {
     setBusy(true);
     try{
-      const j = await jsonp('init'); // 없으면 생성, 있으면 반환
+      const j = await jsonp('init', {}, { timeoutMs: 90000 });// 없으면 생성, 있으면 반환
       if (!j.ok) return alert(j.error || '시트 열기 실패');
       window.open(j.spreadsheetUrl, '_blank');
     }catch(err){
