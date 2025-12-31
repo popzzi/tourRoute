@@ -26,22 +26,87 @@
     .hint { color:var(--muted); font-size:12px; margin-left:auto; display:flex; align-items:center; gap:8px; }
     .pill { font-size:12px; padding:4px 8px; border:1px solid var(--bd); border-radius:999px; color:#444; background:#fff; }
 
-    /* marker overlay */
-    .markerBadge {
+    /* ===== marker overlay (번호 + 장소명) ===== */
+    .markerPin {
+      display:flex;
+      align-items:center;
+      gap:8px;
+    
+      background:#fff;
+      border:1px solid rgba(0,0,0,.16);
+      border-radius:999px;
+      padding:6px 10px;
+    
+      box-shadow:0 4px 14px rgba(0,0,0,.12);
+      white-space:nowrap;
+    
+      transform: translate(-50%, -100%);
+      pointer-events: auto; /* hover 이벤트 받기 */
+    }
+    
+    .markerNum {
+      width:22px;
+      height:22px;
+      border-radius:8px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+      font-size:12px;
+      color:#fff;
+    }
+    
+    .markerName {
+      font-size:12px;
+      font-weight:700;
+      color:#111;
+      max-width:180px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    
+    /* hover 시 살짝 강조 */
+    .markerPin:hover {
+      box-shadow:0 8px 18px rgba(0,0,0,.16);
+      transform: translate(-50%, -102%);
+    }
+    
+    /* ===== image tooltip (InfoWindow content) ===== */
+    .iwWrap {
+      width:180px;
+      padding:8px;
+    }
+    .iwImg {
+      width:100%;
+      height:110px;
+      object-fit:cover;
+      border-radius:10px;
+      display:block;
+      background:#f2f2f2;
+    }
+    .iwTitle {
+      margin-top:8px;
+      font-size:13px;
+      font-weight:800;
+      color:#111;
+      line-height:1.2;
+    }
+
+    /* .markerBadge {
       display:flex; align-items:center; gap:6px;
       background:#fff; border:1px solid rgba(0,0,0,.15);
       border-radius:999px; padding:6px 8px;
       box-shadow:0 4px 16px rgba(0,0,0,.12);
       white-space:nowrap;
       transform: translate(-50%, -100%);
-    }
+    } */
     .markerNum {
       width:20px; height:20px; border-radius:8px;
       display:flex; align-items:center; justify-content:center;
       font-weight:700; font-size:12px; color:#fff;
     }
     .markerName { font-size:12px; color:#111; max-width:180px; overflow:hidden; text-overflow:ellipsis; }
-    .markerAddr { font-size:11px; color:#666; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+    /* .markerAddr { font-size:11px; color:#666; max-width:220px; overflow:hidden; text-overflow:ellipsis; } */
 
     /* modal */
     .modalBack {
@@ -272,24 +337,71 @@
 
   function makeMarkerOverlay(stop, dayColor){
     const pos = new kakao.maps.LatLng(stop.lat, stop.lng);
+  
     const num = Number(stop.seq) || 0;
     const name = escapeHtml(stop.name);
-    const addr = escapeHtml(stop.road_address || '');
+  
+    // stop.image_url 이 있으면 hover 시 이미지 툴팁을 띄움
+    const imgUrl = String(stop.image_url || '').trim();
+  
     const content = `
-      <div class="markerBadge">
+      <div class="markerPin" data-seq="${num}">
         <div class="markerNum" style="background:${dayColor}">${num}</div>
-        <div style="display:flex;flex-direction:column;line-height:1.1">
-          <div class="markerName">${name}</div>
-          <div class="markerAddr">${addr}</div>
-        </div>
+        <div class="markerName">${name}</div>
       </div>
     `;
-    return new kakao.maps.CustomOverlay({
+  
+    const overlay = new kakao.maps.CustomOverlay({
       position: pos,
       content,
       yAnchor: 1.05
     });
+  
+    // ✅ hover 툴팁(InfoWindow)
+    // CustomOverlay는 이벤트를 content DOM에 붙여야 함
+    // overlay.setMap(map) 이후에 DOM이 생성되므로, 약간 지연 후 바인딩
+    overlay.__bindHover = () => {
+      const el = overlay.getContent ? overlay.getContent() : null;
+  
+      // overlay.getContent()는 문자열을 반환하는 경우가 있어 DOM 접근이 안 될 수 있음
+      // 그래서 실제 DOM을 query로 찾는 방식이 가장 안정적
+      const nodes = document.querySelectorAll('.markerPin');
+      let node = null;
+      nodes.forEach(n => {
+        // 위치 기반으로 특정하기 어려우니, seq로 최근 생성된 것을 우선 사용
+        if (String(n.getAttribute('data-seq')) === String(num)) node = n;
+      });
+  
+      if (!node) return;
+  
+      // 이미지 없으면 hover 기능 자체를 붙이지 않음
+      if (!imgUrl) return;
+  
+      const iw = new kakao.maps.InfoWindow({
+        content: `
+          <div class="iwWrap">
+            <img class="iwImg" src="${escapeHtml(imgUrl)}" alt="photo"/>
+            <div class="iwTitle">${escapeHtml(num)}. ${name}</div>
+          </div>
+        `
+      });
+  
+      // 마우스 오버 / 아웃
+      node.addEventListener('mouseenter', () => {
+        // InfoWindow는 Marker에 붙이는 게 정석이지만,
+        // 우리는 CustomOverlay라 position 기반으로 열어줌
+        iw.setPosition(pos);
+        iw.open(map);
+      });
+  
+      node.addEventListener('mouseleave', () => {
+        iw.close();
+      });
+    };
+  
+    return overlay;
   }
+
 
   function drawStops(stops){
     const points = [];
@@ -299,6 +411,10 @@
       const overlay = makeMarkerOverlay(s, color);
       overlay.setMap(map);
       markers.push(overlay);
+      
+      // ✅ DOM 생성 이후 hover 바인딩
+      setTimeout(() => overlay.__bindHover && overlay.__bindHover(), 0);
+
       points.push(new kakao.maps.LatLng(s.lat, s.lng));
     });
     fitBounds(points);
