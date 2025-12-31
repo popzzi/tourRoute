@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Team Tour Tool</title>
+  <title>Tour Route Tool</title>
 
   <style>
     body { margin:0; font-family: system-ui, -apple-system, sans-serif; }
@@ -65,7 +65,7 @@
 <body>
   <header>
     <div class="row">
-      <strong>Team Tour Tool</strong>
+      <strong>Tour Route Tool</strong>
 
       <button id="initBtn">초기화</button>
       <button id="openSheetBtn">Stops 시트</button>
@@ -89,7 +89,7 @@
   <div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
     <div style="
       position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:min(1000px, calc(100vw - 24px)); max-height:calc(100vh - 24px);
+      width:min(1100px, calc(100vw - 24px)); max-height:calc(100vh - 24px);
       background:#fff; border-radius:16px; overflow:hidden;
       box-shadow:0 12px 30px rgba(0,0,0,.20);">
 
@@ -229,7 +229,7 @@
             color:#fff; background:${color}; font-weight:700;">
             ${escapeHtml(stop.seq)}
           </span>
-          <span style="max-width:160px; overflow:hidden; text-overflow:ellipsis;">
+          <span style="max-width:180px; overflow:hidden; text-overflow:ellipsis;">
             ${escapeHtml(stop.name)}
           </span>
         </div>
@@ -277,7 +277,7 @@
     }
 
     // =====================
-    // Timeline popup (Stops+Legs로 계산)
+    // Timeline popup (Stops+Legs로 계산) + 주소 포함
     // =====================
     function buildTimelineRowsFromData(stops, legs) {
       const stopsByDay = {};
@@ -286,30 +286,30 @@
         (stopsByDay[d] ||= []).push(s);
       });
       Object.values(stopsByDay).forEach(arr => arr.sort((a,b)=>asNum(a.seq)-asNum(b.seq)));
-    
+
       const legsByDay = {};
       (legs || []).forEach(l => {
         const d = String(l.day || 1);
         (legsByDay[d] ||= []).push(l);
       });
-    
+
       const rows = [];
       const days = Object.keys(stopsByDay).sort((a,b)=>asNum(a)-asNum(b));
-    
+
       for (const d of days) {
         const sArr = stopsByDay[d];
         const lArr = legsByDay[d] || [];
-    
+
         let cumDrive = 0;
         let cumStay = 0;
         let cumTotal = 0;
-    
+
         for (let i = 0; i < sArr.length; i++) {
           const cur = sArr[i];
-    
+
           let driveMin = 0;
           let distKm = 0;
-    
+
           if (i > 0) {
             const prev = sArr[i - 1];
             const leg = lArr.find(x => asNum(x.from_seq) === asNum(prev.seq) && asNum(x.to_seq) === asNum(cur.seq));
@@ -317,16 +317,16 @@
             distKm = leg ? asNum(leg.dist_km) : 0;
             cumDrive += driveMin;
           }
-    
-          const stayMin = asNum(cur.stay_min);   // ✅ GAS에서 내려준 stay_min 사용
+
+          const stayMin = asNum(cur.stay_min); // (GAS에서 내려오면 반영됨)
           cumStay += stayMin;
-    
           cumTotal = cumDrive + cumStay;
-    
+
           rows.push({
             day: d,
             seq: cur.seq,
             place: cur.name,
+            roadAddress: cur.road_address || '',
             stayMin,
             driveMin,
             distKm,
@@ -339,13 +339,12 @@
       return rows;
     }
 
-
     function openModal() { modalBackdrop.style.display = 'block'; }
     function closeModal() { modalBackdrop.style.display = 'none'; }
     modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
     closeModalBtn.addEventListener('click', closeModal);
 
-    function renderSummaryCards({ totalDriveMin, totalStayMin, totalTotalMin, totalDistKm, note }) { 
+    function renderSummaryCards({ totalDriveMin, totalStayMin, totalTotalMin, totalDistKm }) {
       summaryBox.innerHTML = '';
       const items = [
         { label: '총 소요시간(이동+체류)', value: `${mmToHHMM(totalTotalMin)} (${totalTotalMin}분)` },
@@ -354,48 +353,38 @@
         { label: '총 이동거리', value: `${(Math.round(totalDistKm*10)/10).toFixed(1)} km` },
       ];
 
-
       items.forEach(it => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding:10px 12px; border:1px solid #eee; border-radius:14px; background:#fafafa; min-width:180px;';
+        div.style.cssText = 'padding:10px 12px; border:1px solid #eee; border-radius:14px; background:#fafafa; min-width:190px;';
         div.innerHTML = `<div style="font-size:12px; color:#666;">${escapeHtml(it.label)}</div><div style="font-weight:700; margin-top:2px;">${escapeHtml(it.value)}</div>`;
         summaryBox.appendChild(div);
       });
-
-      if (note) {
-        const div = document.createElement('div');
-        div.style.cssText = 'padding:10px 12px; border:1px solid #eee; border-radius:14px; background:#fff; flex:1;';
-        div.innerHTML = `<div style="font-size:12px; color:#666;">메모</div><div style="margin-top:2px;">${escapeHtml(note)}</div>`;
-        summaryBox.appendChild(div);
-      }
     }
 
     function renderTimelineTable(rows) {
       const html = `
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
-          <thead style="text-align:center;">
+          <thead>
             <tr style="background:#f6f6f6;">
-              <th>day</th>
-              <th>순서</th>
-              <th>장소</th>
-              <th>이동(분)</th>
-              <th>체류(분)</th>
-              <th>누적 이동</th>
-              <th>누적 체류</th>
-              <th>⭐ 누적 총</th>
+              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">day</th>
+              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">순서</th>
+              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">장소</th>
+              <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">도로명 주소</th>
+              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">이동(분)</th>
+              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">체류(분)</th>
+              <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">누적 총(분)</th>
             </tr>
           </thead>
-          <tbody style="text-align:center;">
+          <tbody>
             ${rows.map(r => `
               <tr>
-                <td>${r.day}</td>
-                <td>${r.seq}</td>
-                <td>${escapeHtml(r.place)}</td>
-                <td>${r.driveMin || ''}</td>
-                <td>${r.stayMin || ''}</td>
-                <td>${r.cumDrive}</td>
-                <td>${r.cumStay}</td>
-                <td><b>${r.cumTotal}</b></td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.day)}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.seq)}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.place)}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0; color:#666;">${escapeHtml(r.roadAddress || '')}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.driveMin ? r.driveMin : ''}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.stayMin ? r.stayMin : ''}</td>
+                <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;"><b>${r.cumTotal}</b></td>
               </tr>
             `).join('')}
           </tbody>
@@ -404,46 +393,16 @@
       timelineTableWrap.innerHTML = html;
     }
 
-    // function renderTimelineTable(rows) {
-    //   const html = `
-    //     <table style="width:100%; border-collapse:collapse; font-size:13px;">
-    //       <thead>
-    //         <tr style="background:#f6f6f6;">
-    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">day</th>
-    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">순서</th>
-    //           <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">장소</th>
-    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">이동(분)</th>
-    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">거리(km)</th>
-    //           <th style="text-align:right; padding:8px; border-bottom:1px solid #eee;">누적 이동(분)</th>
-    //         </tr>
-    //       </thead>
-    //       <tbody>
-    //         ${rows.map(r => `
-    //           <tr>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.day)}</td>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.seq)}</td>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(r.place)}</td>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.driveMin ? r.driveMin : ''}</td>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.distKm ? (Math.round(r.distKm*10)/10).toFixed(1) : ''}</td>
-    //             <td style="padding:8px; border-bottom:1px solid #f0f0f0; text-align:right;">${r.cumDrive}</td>
-    //           </tr>
-    //         `).join('')}
-    //       </tbody>
-    //     </table>
-    //   `;
-    //   timelineTableWrap.innerHTML = html;
-    // }
-
     function buildTimelineClipboardText(rows) {
-      // 엑셀/시트/노션에 붙여넣기 좋은 TSV
-      const header = ['day','seq','place','drive_min','dist_km','cum_drive_min'].join('\t');
+      const header = ['day','seq','place','road_address','drive_min','stay_min','cum_total_min'].join('\t');
       const lines = rows.map(r => [
         r.day,
         r.seq,
         r.place,
+        r.roadAddress || '',
         r.driveMin || '',
-        r.distKm ? (Math.round(r.distKm*10)/10).toFixed(1) : '',
-        r.cumDrive
+        r.stayMin || '',
+        r.cumTotal
       ].join('\t'));
       return [header, ...lines].join('\n');
     }
@@ -456,7 +415,6 @@
         await navigator.clipboard.writeText(text);
         copyHint.textContent = '✅ 복사 완료! (시트/엑셀에 붙여넣기 가능)';
       } catch (e) {
-        // clipboard가 막힌 환경 대비 (fallback)
         const ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed';
@@ -477,28 +435,23 @@
       try {
         const day = daySelect.value || '';
 
-        // 1) Stops/Legs
         const data = await jsonp({ action: 'data', day, token: CONFIG.TEAM_TOKEN });
         if (!data.ok) { alert(data.error || 'data 실패'); return; }
 
-        // day select는 Stops 기준으로 항상 재구성(시트와 동기화)
         buildDaySelectFromStops(data.stops, true);
 
         const stops = data.stops || [];
         if (!stops.length) { alert('좌표가 있는 Stops가 없습니다.'); return; }
 
-        // 2) route(도로 라인) - 실패하면 직선 fallback
         const route = await jsonp({ action: 'route', day, token: CONFIG.TEAM_TOKEN });
         const routeOk = !!(route && route.ok && route.pathsByDay);
 
-        // Map init/center
         const center = new kakao.maps.LatLng(stops[0].lat, stops[0].lng);
         if (!map) map = new kakao.maps.Map(document.getElementById('map'), { center, level: 7 });
         else map.setCenter(center);
 
         clearOverlays();
 
-        // stops day별 그룹
         const stopsByDay = {};
         stops.forEach(s => {
           const d = String(s.day || 1);
@@ -517,7 +470,6 @@
             drawDayPolyline(pts, color);
             pts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
           } else {
-            // fallback: 직선
             const linePts = stopsByDay[d].map(s => ({ lat: s.lat, lng: s.lng }));
             drawDayPolyline(linePts, color);
             linePts.forEach(p => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
@@ -579,25 +531,17 @@
 
         const rows = buildTimelineRowsFromData(data.stops || [], data.legs || []);
         const totalDriveMin = rows.reduce((acc, r) => acc + asNum(r.driveMin), 0);
-        const totalDistKm = rows.reduce((acc, r) => acc + asNum(r.distKm), 0);
         const totalStayMin  = rows.reduce((acc, r) => acc + asNum(r.stayMin), 0);
         const totalTotalMin = totalDriveMin + totalStayMin;
-
+        const totalDistKm   = rows.reduce((acc, r) => acc + asNum(r.distKm), 0);
 
         modalTitle.textContent = '타임라인';
         modalSub.textContent = `day=${day || 'ALL'} · stops=${(data.stops||[]).length}`;
 
-        renderSummaryCards({
-          totalDriveMin,
-          totalStayMin,
-          totalTotalMin,
-          totalDistKm,
-          note: ''
-        });
-
+        renderSummaryCards({ totalDriveMin, totalStayMin, totalTotalMin, totalDistKm });
         renderTimelineTable(rows);
 
-        copyTimelineBtn.__rows = rows; // 복사 버튼에서 사용
+        copyTimelineBtn.__rows = rows;
         copyHint.textContent = '';
 
         openModal();
@@ -631,11 +575,10 @@
     });
 
     // =====================
-    // Start (SDK onload 보장)
+    // Start
     // =====================
     function startApp() {
       hint.textContent = '✅ Kakao SDK 준비 완료';
-      // 최초 1회: data를 받아 daySelect 구성 후 지도 로드
       loadMap();
     }
 
