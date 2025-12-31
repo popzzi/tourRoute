@@ -469,23 +469,24 @@
       alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
       return;
     }
-
-    const startTime = lastData.start_time || '08:30';
+  
+    // ✅ 상단/테이블 공통으로 이 startTime 하나만 사용
+    const startTime = String(lastData.start_time || '08:30').trim();
+  
+    // ✅ 테이블 시간은 여기서 계산된 결과를 사용
     const pack = buildTimelineForPopup(lastData.stops, lastData.legs, startTime);
-
-    // day 필터가 걸린 상태면 요약에 day 정보 표시
+  
     const dayLabel = (daySelect.value || '').trim() ? `day ${daySelect.value}` : '전체 day';
-
     const back = document.createElement('div');
     back.className = 'modalBack';
-
+  
     const modal = document.createElement('div');
     modal.className = 'modal';
-
+  
     const totalHH = `${Math.floor(pack.totalMin/60)}시간 ${pack.totalMin%60}분`;
     const driveHH = `${Math.floor(pack.sumDrive/60)}시간 ${pack.sumDrive%60}분`;
     const stayHH  = `${Math.floor(pack.sumStay/60)}시간 ${pack.sumStay%60}분`;
-
+  
     modal.innerHTML = `
       <div class="modalHeader">
         <div class="modalTitle">타임라인 (${escapeHtml(dayLabel)})</div>
@@ -496,7 +497,7 @@
         <button id="copyBtn" style="margin-left:auto;">복사</button>
         <button id="closeBtn">닫기</button>
         <div class="sub" style="width:100%;">
-          ※ 시간 컬럼은 “도착~출발(hh:mm~hh:mm)”이며, 이동시간은 Legs.drive_min_buf(버퍼 포함)를 사용합니다.
+          ※ 시간은 “도착~출발(hh:mm~hh:mm)”이며, 이동시간은 Legs.drive_min_buf(버퍼 포함)를 사용합니다.
         </div>
       </div>
       <div class="modalBody">
@@ -524,14 +525,14 @@
         </table>
       </div>
     `;
-
+  
     back.appendChild(modal);
     document.body.appendChild(back);
-
+  
     function close(){ back.remove(); }
     back.addEventListener('click', (e) => { if (e.target === back) close(); });
     modal.querySelector('#closeBtn').addEventListener('click', close);
-
+  
     modal.querySelector('#copyBtn').addEventListener('click', async () => {
       try{
         await copyTimelineToClipboard(pack.rows, startTime);
