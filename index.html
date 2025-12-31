@@ -482,6 +482,9 @@
       }
       lastData = data;
       syncDaySelectFromData(data);
+      console.log('sample stop', lastData?.stops?.[0]);
+      console.log('image_url', lastData?.stops?.[0]?.image_url);
+
 
       // 2) route (도로 polyline)
       const route = await jsonp('route', { day: daySelect.value || '' });
