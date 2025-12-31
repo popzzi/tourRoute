@@ -465,83 +465,85 @@
   }
 
   function showTimelinePopup(){
-    if (!lastData || !lastData.ok){
-      alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
-      return;
-    }
-  
-    // ✅ 상단/테이블 공통으로 이 startTime 하나만 사용
-    const startTime = String(lastData.start_time || '08:30').trim();
-  
-    // ✅ 테이블 시간은 여기서 계산된 결과를 사용
-    const pack = buildTimelineForPopup(lastData.stops, lastData.legs, startTime);
-  
-    const dayLabel = (daySelect.value || '').trim() ? `day ${daySelect.value}` : '전체 day';
-    const back = document.createElement('div');
-    back.className = 'modalBack';
-  
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-  
-    const totalHH = `${Math.floor(pack.totalMin/60)}시간 ${pack.totalMin%60}분`;
-    const driveHH = `${Math.floor(pack.sumDrive/60)}시간 ${pack.sumDrive%60}분`;
-    const stayHH  = `${Math.floor(pack.sumStay/60)}시간 ${pack.sumStay%60}분`;
-  
-    modal.innerHTML = `
-      <div class="modalHeader">
-        <div class="modalTitle">타임라인 (${escapeHtml(dayLabel)})</div>
-        <div class="pill">시작 ${escapeHtml(startTime)}</div>
-        <div class="pill">이동 ${escapeHtml(driveHH)}</div>
-        <div class="pill">체류 ${escapeHtml(stayHH)}</div>
-        <div class="pill"><b>총 ${escapeHtml(totalHH)}</b></div>
-        <button id="copyBtn" style="margin-left:auto;">복사</button>
-        <button id="closeBtn">닫기</button>
-        <div class="sub" style="width:100%;">
-          ※ 시간은 “도착~출발(hh:mm~hh:mm)”이며, 이동시간은 Legs.drive_min_buf(버퍼 포함)를 사용합니다.
-        </div>
-      </div>
-      <div class="modalBody">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:56px;">#</th>
-              <th style="width:220px;">장소</th>
-              <th>주소</th>
-              <th style="width:150px;">시간</th>
-              <th class="right" style="width:90px;">체류(분)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${pack.rows.map(r => `
-              <tr>
-                <td>${escapeHtml(r.seq)}</td>
-                <td><b>${escapeHtml(r.name)}</b></td>
-                <td class="sub">${escapeHtml(r.road_address)}</td>
-                <td>${escapeHtml(r.time_range)}</td>
-                <td class="right">${escapeHtml(r.stay_min)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-  
-    back.appendChild(modal);
-    document.body.appendChild(back);
-  
-    function close(){ back.remove(); }
-    back.addEventListener('click', (e) => { if (e.target === back) close(); });
-    modal.querySelector('#closeBtn').addEventListener('click', close);
-  
-    modal.querySelector('#copyBtn').addEventListener('click', async () => {
-      try{
-        await copyTimelineToClipboard(pack.rows, startTime);
-        alert('복사 완료! (엑셀/시트에 붙여넣기 가능)');
-      }catch(err){
-        alert(err.message || String(err));
-      }
-    });
+  if (!lastData || !lastData.ok){
+    alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
+    return;
   }
+
+  // ✅ 상단/테이블 공통 기준 시간 (여기 1번만 정의)
+  const startTime = String(lastData.start_time || '08:30').trim();
+
+  // ✅ 테이블 시간은 무조건 이 계산 결과로만 렌더링
+  const pack = buildTimelineForPopup(lastData.stops, lastData.legs, startTime);
+
+  const dayLabel = (daySelect.value || '').trim() ? `day ${daySelect.value}` : '전체 day';
+
+  const back = document.createElement('div');
+  back.className = 'modalBack';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const totalHH = `${Math.floor(pack.totalMin/60)}시간 ${pack.totalMin%60}분`;
+  const driveHH = `${Math.floor(pack.sumDrive/60)}시간 ${pack.sumDrive%60}분`;
+  const stayHH  = `${Math.floor(pack.sumStay/60)}시간 ${pack.sumStay%60}분`;
+
+  modal.innerHTML = `
+    <div class="modalHeader">
+      <div class="modalTitle">타임라인 (${escapeHtml(dayLabel)})</div>
+      <div class="pill">시작 ${escapeHtml(startTime)}</div>
+      <div class="pill">이동 ${escapeHtml(driveHH)}</div>
+      <div class="pill">체류 ${escapeHtml(stayHH)}</div>
+      <div class="pill"><b>총 ${escapeHtml(totalHH)}</b></div>
+      <button id="copyBtn" style="margin-left:auto;">복사</button>
+      <button id="closeBtn">닫기</button>
+      <div class="sub" style="width:100%;">
+        ※ 시간은 “도착~출발(hh:mm~hh:mm)”이며, 이동시간은 Legs.drive_min_buf(버퍼 포함)를 사용합니다.
+      </div>
+    </div>
+    <div class="modalBody">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:56px;">#</th>
+            <th style="width:220px;">장소</th>
+            <th>주소</th>
+            <th style="width:150px;">시간</th>
+            <th class="right" style="width:90px;">체류(분)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pack.rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.seq)}</td>
+              <td><b>${escapeHtml(r.name)}</b></td>
+              <td class="sub">${escapeHtml(r.road_address || '')}</td>
+              <td>${escapeHtml(r.time_range)}</td>
+              <td class="right">${escapeHtml(r.stay_min)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  back.appendChild(modal);
+  document.body.appendChild(back);
+
+  function close(){ back.remove(); }
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  modal.querySelector('#closeBtn').addEventListener('click', close);
+
+  modal.querySelector('#copyBtn').addEventListener('click', async () => {
+    try{
+      await copyTimelineToClipboard(pack.rows, startTime);
+      alert('복사 완료! (엑셀/시트에 붙여넣기 가능)');
+    }catch(err){
+      alert(err.message || String(err));
+    }
+  });
+}
+
 
   // -------------------------
   // Buttons
