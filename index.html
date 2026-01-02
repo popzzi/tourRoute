@@ -200,9 +200,13 @@
   const daySelect = document.getElementById('daySelect');
   const sdkState = document.getElementById('sdkState');
   const smallHint = document.getElementById('smallHint');
+  const templateBtn = document.getElementById('templateBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const openMySheetBtn = document.getElementById('openMySheetBtn');
+  const setActiveBtn = document.getElementById('setActiveBtn');
 
   function setBusy(b){
-    [initBtn, openSheetBtn, recalcBtn, reloadBtn, timelineBtn, daySelect].forEach(el => el.disabled = b);
+    [initBtn, openSheetBtn, recalcBtn, reloadBtn, timelineBtn, daySelect, templateBtn, copyBtn, openMySheetBtn, setActiveBtn].forEach(el => el.disabled = b);
   }
   function escapeHtml(s) {
     return String(s || '')
@@ -616,11 +620,6 @@
     alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
     return;
   }
-
-  const templateBtn = document.getElementById('templateBtn');
-  const copyBtn = document.getElementById('copyBtn');
-  const openMySheetBtn = document.getElementById('openMySheetBtn');
-  const setActiveBtn = document.getElementById('setActiveBtn');
   
   // JSONP는 오래 걸릴 수 있어서 기본 90초 권장
   async function callJsonp(action, params={}, timeoutMs=90000){
