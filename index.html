@@ -7,407 +7,621 @@
 
   <style>
     body { margin:0; font-family: system-ui, -apple-system, sans-serif; }
-    header {
-      position: sticky; top:0; z-index:10;
-      padding:12px 14px; border-bottom:1px solid #eee; background:#fff;
-    }
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
+    header { padding:12px 14px; border-bottom:1px solid #eee; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     #map { width:100%; height: calc(100vh - 74px); }
-    button, select {
-      padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer;
-    }
+    button, select { padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer; }
     button:disabled, select:disabled { opacity:.5; cursor:not-allowed; }
     .hint { color:#666; font-size:12px; margin-left:auto; }
-    .btn-primary { border-color:#111; }
-    .btn-warn { border-color:#cc3; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
+    .pill{ font-size:12px; padding:5px 8px; border:1px solid #eee; border-radius:999px; background:#fafafa; }
+    .sub{ color:#666; font-size:12px; }
+
+    /* ===== marker overlay (번호 + 장소명) ===== */
+    .markerPin {
+      display:flex; align-items:center; gap:8px;
+      background:#fff; border:1px solid rgba(0,0,0,.16);
+      border-radius:999px; padding:6px 10px;
+      box-shadow:0 4px 14px rgba(0,0,0,.12);
+      white-space:nowrap;
+      transform: translate(-50%, -100%);
+      pointer-events:auto;
+    }
+    .markerNum {
+      width:22px; height:22px; border-radius:8px;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:800; font-size:12px; color:#fff;
+    }
+    .markerName {
+      font-size:12px; font-weight:700; color:#111;
+      max-width:180px; overflow:hidden; text-overflow:ellipsis;
+    }
+    .markerPin:hover {
+      box-shadow:0 8px 18px rgba(0,0,0,.16);
+      transform: translate(-50%, -102%);
+    }
+
+    /* ===== image tooltip ===== */
+    .iwWrap{ width:180px; padding:8px; }
+    .iwImg{ width:100%; height:110px; object-fit:cover; border-radius:10px; display:block; background:#f2f2f2; }
+    .iwTitle{ margin-top:8px; font-size:13px; font-weight:800; color:#111; line-height:1.2; }
+
+    /* ===== modal ===== */
+    .modalBack{
+      position:fixed; inset:0; background:rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center;
+      z-index:9999;
+    }
+    .modal{
+      width:min(920px, calc(100vw - 24px));
+      max-height: min(78vh, 720px);
+      background:#fff; border-radius:16px; overflow:hidden;
+      box-shadow:0 20px 60px rgba(0,0,0,.25);
+      display:flex; flex-direction:column;
+    }
+    .modalHeader{
+      padding:12px 12px;
+      border-bottom:1px solid #eee;
+      display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    }
+    .modalTitle{ font-weight:900; }
+    .modalBody{ padding:10px 12px; overflow:auto; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:left; font-size:13px; vertical-align:top; }
+    th{ position:sticky; top:0; background:#fff; z-index:1; }
+    .right{ text-align:right; }
   </style>
 
-  <!-- ✅ Kakao Maps SDK: async 동적삽입 X (기본 방식) -->
   <script>
-    // ✅ 여기 3개만 너 값으로 바꿔
-    window.CONFIG = {
+    /**
+     * ====== 필수 설정 (여기만 수정) ======
+     * - GAS_WEBAPP_URL: Apps Script 웹앱 exec URL
+     * - TEAM_API_TOKEN: Script Properties의 TEAM_API_TOKEN과 동일
+     * - KAKAO_JS_KEY: 카카오 JavaScript 키
+     */
+    const CONFIG = {
       GAS_WEBAPP_URL: "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec",
       TEAM_API_TOKEN: "tourtool_2025_wjogpgpwglksjw2362dfd",
       KAKAO_JS_KEY: "2f4cbe8e415272a7af886adf1944dd64",
     };
   </script>
-  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64"></script>
+
+  <!-- Kakao SDK (autoload=false로 로딩 완료 후 kakao.maps.load 사용) -->
+  <script>
+    (function loadKakaoSdk(){
+      const s = document.createElement('script');
+      s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey='
+        + encodeURIComponent(CONFIG.KAKAO_JS_KEY)
+        + '&autoload=false';
+      s.async = true;
+      s.onerror = () => { window.__kakaoLoadError = true; };
+      document.head.appendChild(s);
+    })();
+  </script>
 </head>
 
 <body>
-<header>
-  <div class="row">
-    <strong>Tour Route Tool</strong>
+  <header>
+    <div class="row">
+      <strong>Tour Route Tool</strong>
 
-    <button id="initBtn" class="btn-warn">초기화(init)</button>
-    <button id="openSheetBtn">Stops 시트 열기</button>
-    <button id="recalcBtn" class="btn-primary">경로 계산(recalc)</button>
+      <button id="initBtn">초기화(팀 시트 생성/연결)</button>
+      <button id="openSheetBtn">Stops 시트 열기</button>
+      <button id="recalcBtn">경로 계산(recalc)</button>
 
-    <select id="daySelect">
-      <option value="">전체 day</option>
-    </select>
+      <select id="daySelect" disabled>
+        <option value="">전체 day</option>
+      </select>
 
-    <button id="reloadBtn">지도 새로고침</button>
-    <button id="timelineBtn">타임라인 보기</button>
+      <button id="reloadBtn">지도 새로고침</button>
+      <button id="timelineBtn">타임라인 보기</button>
 
-    <span class="hint" id="hint">대기중…</span>
-  </div>
-</header>
+      <span class="hint" id="hint">SDK 로딩 대기…</span>
+    </div>
+  </header>
 
-<div id="map"></div>
+  <div id="map"></div>
 
-<script>
-(function(){
-  const CONFIG = window.CONFIG;
+  <script>
+    const initBtn = document.getElementById('initBtn');
+    const openSheetBtn = document.getElementById('openSheetBtn');
+    const recalcBtn = document.getElementById('recalcBtn');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const timelineBtn = document.getElementById('timelineBtn');
+    const daySelect = document.getElementById('daySelect');
+    const hint = document.getElementById('hint');
 
-  const initBtn = document.getElementById('initBtn');
-  const openSheetBtn = document.getElementById('openSheetBtn');
-  const recalcBtn = document.getElementById('recalcBtn');
-  const reloadBtn = document.getElementById('reloadBtn');
-  const timelineBtn = document.getElementById('timelineBtn');
-  const daySelect = document.getElementById('daySelect');
-  const hint = document.getElementById('hint');
+    let map = null;
+    let lastData = null;
+    let pathsByDay = {};
+    let polylines = [];
+    let overlays = [];
+    let hoverInfoWindow = null;
+    const stopByKey = new Map();
+    let hoverHandlerInstalled = false;
 
-  function setBusy(b){
-    [initBtn, openSheetBtn, recalcBtn, reloadBtn, timelineBtn, daySelect]
-      .forEach(el => el && (el.disabled = !!b));
-  }
+    function setBusy(b) {
+      [initBtn, openSheetBtn, recalcBtn, reloadBtn, timelineBtn, daySelect].forEach(el => el.disabled = b);
+    }
 
-  function ensureKakaoReady(){
-    return (typeof kakao !== 'undefined' && kakao.maps && typeof kakao.maps.LatLng === 'function');
-  }
+    function escapeHtml(s) {
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
 
-  function escapeHtml(s){
-    return String(s ?? '')
-      .replaceAll('&','&amp;')
-      .replaceAll('<','&lt;')
-      .replaceAll('>','&gt;')
-      .replaceAll('"','&quot;')
-      .replaceAll("'","&#39;");
-  }
+    function jsonp(action, params = {}, timeoutMs = 15000) {
+      return new Promise((resolve, reject) => {
+        const cbName = `__cb_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const url = new URL(CONFIG.GAS_WEBAPP_URL);
 
-  // ✅ JSONP (기본 안정 패턴, 60초)
-  function jsonp(action, params = {}) {
-    return new Promise((resolve, reject) => {
-      const cb = `__cb_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
-      const url = new URL(CONFIG.GAS_WEBAPP_URL);
-      url.searchParams.set('action', action);
-      url.searchParams.set('token', CONFIG.TEAM_API_TOKEN);
-      url.searchParams.set('callback', cb);
-      Object.entries(params).forEach(([k,v]) => {
-        if (v === undefined || v === null) return;
-        url.searchParams.set(k, String(v));
+        url.searchParams.set('action', action);
+        url.searchParams.set('token', CONFIG.TEAM_API_TOKEN);
+        url.searchParams.set('callback', cbName);
+
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          url.searchParams.set(k, String(v));
+        });
+
+        const script = document.createElement('script');
+        let done = false;
+
+        const timer = setTimeout(() => {
+          if (done) return;
+          done = true;
+          cleanup();
+          reject(new Error('JSONP timeout'));
+        }, timeoutMs);
+
+        function cleanup() {
+          clearTimeout(timer);
+          delete window[cbName];
+          script.remove();
+        }
+
+        window[cbName] = (data) => {
+          if (done) return;
+          done = true;
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = () => {
+          if (done) return;
+          done = true;
+          cleanup();
+          reject(new Error('JSONP load error'));
+        };
+
+        script.src = url.toString();
+        document.body.appendChild(script);
+      });
+    }
+
+    function dayColor(day) {
+      const d = Number(day) || 1;
+      const palette = ['#2563eb','#16a34a','#f97316','#7c3aed','#0ea5e9','#ef4444','#a16207'];
+      return palette[(d - 1) % palette.length];
+    }
+
+    function ensureKakaoReady() {
+      return (typeof kakao !== 'undefined' && kakao.maps && typeof kakao.maps.load === 'function');
+    }
+
+    function ensureMapInitialized(centerLatLng) {
+      if (!map) {
+        map = new kakao.maps.Map(document.getElementById('map'), {
+          center: centerLatLng,
+          level: 7
+        });
+        hoverInfoWindow = new kakao.maps.InfoWindow({ removable: false });
+      } else {
+        map.setCenter(centerLatLng);
+      }
+    }
+
+    function clearMap() {
+      polylines.forEach(pl => pl.setMap(null));
+      polylines = [];
+      overlays.forEach(o => o.setMap(null));
+      overlays = [];
+      stopByKey.clear();
+      pathsByDay = {};
+    }
+
+    function installHoverHandlerOnce() {
+      if (hoverHandlerInstalled) return;
+      hoverHandlerInstalled = true;
+
+      const mapEl = document.getElementById('map');
+
+      mapEl.addEventListener('mouseover', (e) => {
+        const pin = e.target.closest && e.target.closest('.markerPin');
+        if (!pin) return;
+
+        const key = pin.getAttribute('data-stopkey') || '';
+        const s = stopByKey.get(key);
+        if (!s) return;
+
+        const imgUrl = String(s.image_url || '').trim();
+        if (!imgUrl) return;
+
+        const pos = new kakao.maps.LatLng(s.lat, s.lng);
+        hoverInfoWindow.setPosition(pos);
+        hoverInfoWindow.setContent(`
+          <div class="iwWrap">
+            <img class="iwImg" src="${escapeHtml(imgUrl)}" alt="photo"/>
+            <div class="iwTitle">${escapeHtml(s.seq)}. ${escapeHtml(s.name)}</div>
+          </div>
+        `);
+        hoverInfoWindow.open(map);
       });
 
-      const script = document.createElement('script');
-      let done = false;
+      mapEl.addEventListener('mouseout', (e) => {
+        const pin = e.target.closest && e.target.closest('.markerPin');
+        if (!pin) return;
+        hoverInfoWindow && hoverInfoWindow.close();
+      });
+    }
 
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error('JSONP timeout'));
-      }, 60000);
+    function makeMarkerOverlay(stop) {
+      const pos = new kakao.maps.LatLng(stop.lat, stop.lng);
+      const key = `${stop.day}::${stop.seq}`;
+      stopByKey.set(key, stop);
 
-      function cleanup(){
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        try { delete window[cb]; } catch(e) { window[cb] = undefined; }
-        if (script && script.parentNode) script.parentNode.removeChild(script);
+      const num = Number(stop.seq) || 0;
+      const name = escapeHtml(stop.name);
+      const color = dayColor(stop.day);
+
+      const content = `
+        <div class="markerPin" data-stopkey="${escapeHtml(key)}">
+          <div class="markerNum" style="background:${color}">${num}</div>
+          <div class="markerName">${name}</div>
+        </div>
+      `;
+
+      return new kakao.maps.CustomOverlay({
+        position: pos,
+        content,
+        yAnchor: 1.05
+      });
+    }
+
+    function drawStops(stops) {
+      stops.forEach(s => {
+        const o = makeMarkerOverlay(s);
+        o.setMap(map);
+        overlays.push(o);
+      });
+    }
+
+    function drawPolylines(pathsByDayObj) {
+      Object.entries(pathsByDayObj || {}).forEach(([day, pts]) => {
+        if (!pts || !pts.length) return;
+        const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+
+        const pl = new kakao.maps.Polyline({
+          path,
+          strokeWeight: 5,
+          strokeOpacity: 0.8,
+          strokeStyle: 'solid',
+          strokeColor: dayColor(day)
+        });
+        pl.setMap(map);
+        polylines.push(pl);
+      });
+    }
+
+    function fitBoundsFromStops(stops) {
+      const b = new kakao.maps.LatLngBounds();
+      stops.forEach(s => b.extend(new kakao.maps.LatLng(s.lat, s.lng)));
+      map.setBounds(b);
+    }
+
+    function rebuildDaySelectFromStops(stops) {
+      const days = Array.from(new Set((stops || []).map(s => String(s.day)))).filter(Boolean).sort((a,b)=>Number(a)-Number(b));
+      const current = daySelect.value;
+
+      daySelect.innerHTML = `<option value="">전체 day</option>` + days.map(d => `<option value="${escapeHtml(d)}">day ${escapeHtml(d)}</option>`).join('');
+      daySelect.disabled = false;
+
+      // 현재 선택 유지(가능하면)
+      if (current && days.includes(current)) daySelect.value = current;
+      else daySelect.value = '';
+    }
+
+    async function refreshAll() {
+      setBusy(true);
+      hint.textContent = '데이터 로딩…';
+
+      try {
+        const day = daySelect.value || '';
+        const data = await jsonp('data', { day }, 15000);
+        if (!data.ok) throw new Error(data.error || 'data failed');
+        lastData = data;
+
+        rebuildDaySelectFromStops(data.stops);
+
+        // route는 도로형 polyline
+        const route = await jsonp('route', { day: daySelect.value || '' }, 20000);
+        if (!route.ok) throw new Error(route.error || 'route failed');
+        pathsByDay = route.pathsByDay || {};
+
+        clearMap();
+
+        if (!data.stops.length) {
+          hint.textContent = 'Stops 좌표가 없습니다. recalc 후 다시 시도하세요.';
+          return;
+        }
+
+        ensureMapInitialized(new kakao.maps.LatLng(data.stops[0].lat, data.stops[0].lng));
+        drawPolylines(pathsByDay);
+        drawStops(data.stops);
+        installHoverHandlerOnce();
+        fitBoundsFromStops(data.stops);
+
+        hint.textContent = `✅ 로드됨 (start_time: ${data.start_time || '08:30'})`;
+      } catch (err) {
+        if (String(err.message || err).includes('JSONP timeout')) {
+          hint.textContent = '⚠️ JSONP timeout (서버 작업이 길어 지연됨). 시트가 생성됐는지 먼저 확인 후 다시 시도하세요.';
+        } else {
+          hint.textContent = '⚠️ ' + (err.message || String(err));
+        }
+        alert(err.message || String(err));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function handleInit() {
+      setBusy(true);
+      hint.textContent = '초기화 실행…';
+      try {
+        const j = await jsonp('init', {}, 20000);
+        if (!j.ok) throw new Error(j.error || 'init failed');
+        alert(`팀 공용 시트 연결 완료!\n\n${j.name}\n${j.spreadsheetUrl}`);
+
+        // init 후 바로 로딩
+        await refreshAll();
+      } catch (err) {
+        if (String(err.message || err).includes('JSONP timeout')) {
+          alert('JSONP timeout: 초기화 작업이 오래 걸려 프론트가 먼저 포기했습니다.\n대부분 시트 생성/설정은 완료되어 있을 수 있으니 시트가 생성됐는지 먼저 확인 후, 다시 "지도 새로고침"을 눌러주세요.');
+        } else {
+          alert(err.message || String(err));
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function handleRecalc() {
+      setBusy(true);
+      hint.textContent = '경로 계산(recalc)…';
+      try {
+        const j = await jsonp('recalc', {}, 45000); // directions 호출로 느릴 수 있음
+        if (!j.ok) throw new Error(j.error || 'recalc failed');
+        alert('완료! 이제 "지도 새로고침"을 누르세요.');
+      } catch (err) {
+        alert(err.message || String(err));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function parseHHMMToMin(hhmm){
+      const m = String(hhmm || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return 0;
+      return Number(m[1]) * 60 + Number(m[2]);
+    }
+    function minToHHMM(min){
+      let m = Number(min);
+      if (!isFinite(m)) m = 0;
+      m = (m % (24*60) + (24*60)) % (24*60);
+      const h = Math.floor(m/60);
+      const mm = m % 60;
+      return String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+    }
+
+    function buildTimelineForPopup(stops, legs, startTime) {
+      const byDayStops = new Map();
+      (stops||[]).forEach(s=>{
+        const k = String(s.day);
+        if (!byDayStops.has(k)) byDayStops.set(k, []);
+        byDayStops.get(k).push(s);
+      });
+
+      const byDayLegs = new Map();
+      (legs||[]).forEach(l=>{
+        const k = String(l.day);
+        if (!byDayLegs.has(k)) byDayLegs.set(k, []);
+        byDayLegs.get(k).push(l);
+      });
+
+      const rows = [];
+      let sumDrive = 0;
+      let sumStay = 0;
+
+      for (const [day, arr] of byDayStops.entries()) {
+        const sorted = arr.slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
+        const legsDay = (byDayLegs.get(day) || []);
+        let t = parseHHMMToMin(startTime || '08:30');
+
+        for (let i=0;i<sorted.length;i++){
+          const s = sorted[i];
+
+          let driveFromPrev = 0;
+          if (i>0){
+            const prev = sorted[i-1];
+            const leg = legsDay.find(x => Number(x.from_seq)===Number(prev.seq) && Number(x.to_seq)===Number(s.seq));
+            driveFromPrev = leg ? Number(leg.drive_min_buf || 0) : 0;
+            t += driveFromPrev;
+            sumDrive += driveFromPrev;
+          }
+
+          const arrive = t;
+          const stay = Number(s.stay_min || 0);
+          const depart = arrive + stay;
+          sumStay += stay;
+
+          rows.push({
+            day,
+            seq: s.seq,
+            name: s.name,
+            road_address: s.road_address || '',
+            stay_min: stay,
+            time_range: `${minToHHMM(arrive)}~${minToHHMM(depart)}`
+          });
+
+          t = depart;
+        }
       }
 
-      window[cb] = (data) => { cleanup(); resolve(data); };
-      script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
-      script.src = url.toString();
-      document.body.appendChild(script);
-    });
-  }
+      const totalMin = sumDrive + sumStay;
+      return { rows, sumDrive, sumStay, totalMin };
+    }
 
-  // ========= map render state =========
-  let map = null;
-  let markers = [];
-  let overlays = [];
-  let polylines = [];
-
-  const DAY_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2'];
-
-  function clearMap(){
-    markers.forEach(m => m.setMap(null));
-    overlays.forEach(o => o.setMap(null));
-    polylines.forEach(p => p.setMap(null));
-    markers = [];
-    overlays = [];
-    polylines = [];
-  }
-
-  function ensureMap(center){
-    if (!map) map = new kakao.maps.Map(document.getElementById('map'), { center, level: 7 });
-    else map.setCenter(center);
-  }
-
-  function fitBounds(stops){
-    const bounds = new kakao.maps.LatLngBounds();
-    stops.forEach(s => bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)));
-    map.setBounds(bounds);
-  }
-
-  function drawMarkers(stops){
-    stops.forEach(s => {
-      const pos = new kakao.maps.LatLng(s.lat, s.lng);
-      const marker = new kakao.maps.Marker({ position: pos, map });
-      markers.push(marker);
-
-      // 숫자+장소명 라벨
-      const content =
-        `<div style="background:#fff;border:1px solid #ddd;border-radius:999px;padding:4px 8px;
-                    box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:12px;white-space:nowrap;">
-          <b style="margin-right:6px;">${escapeHtml(s.seq)}</b>${escapeHtml(s.name)}
-        </div>`;
-      const overlay = new kakao.maps.CustomOverlay({ position: pos, content, yAnchor: 1.35 });
-      overlay.setMap(map);
-      overlays.push(overlay);
-    });
-  }
-
-  function drawRoute(pathsByDay, selectedDay){
-    const days = Object.keys(pathsByDay || {}).sort((a,b)=>Number(a)-Number(b));
-    days.forEach(dy => {
-      if (selectedDay && String(selectedDay) !== String(dy)) return;
-      const pts = pathsByDay[dy] || [];
-      if (!pts.length) return;
-
-      const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
-      const color = DAY_COLORS[(Number(dy)-1) % DAY_COLORS.length];
-
-      const poly = new kakao.maps.Polyline({
-        path, strokeWeight: 5, strokeOpacity: 0.8, strokeColor: color, strokeStyle: 'solid'
+    async function copyTimelineToClipboard(rows, startTime){
+      const lines = [];
+      lines.push(['#','장소','주소','시간','체류(분)'].join('\t'));
+      rows.forEach(r=>{
+        lines.push([r.seq, r.name, r.road_address, r.time_range, r.stay_min].join('\t'));
       });
-      poly.setMap(map);
-      polylines.push(poly);
-    });
-  }
+      lines.push('');
+      lines.push(`start_time\t${startTime}`);
+      const text = lines.join('\n');
 
-  function populateDaySelect(days){
-    while (daySelect.options.length > 1) daySelect.remove(1);
-    (days || []).forEach(dy => {
-      const opt = document.createElement('option');
-      opt.value = String(dy);
-      opt.textContent = `day ${dy}`;
-      daySelect.appendChild(opt);
-    });
-  }
-
-  async function handleInit(){
-    setBusy(true);
-    try{
-      const j = await jsonp('init');
-      if (!j.ok) return alert(j.error || 'init 실패');
-      alert(`연결 완료!\n${j.name}\n${j.spreadsheetUrl}`);
-    }catch(e){
-      alert(e.message || String(e));
-    }finally{
-      setBusy(false);
-    }
-  }
-
-  async function handleOpenSheet(){
-    setBusy(true);
-    try{
-      const j = await jsonp('openSheet'); // url 반환
-      if (!j.ok) return alert(j.error || 'openSheet 실패');
-      window.open(j.spreadsheetUrl, '_blank');
-    }catch(e){
-      alert(e.message || String(e));
-    }finally{
-      setBusy(false);
-    }
-  }
-
-  async function handleRecalc(){
-    setBusy(true);
-    try{
-      const j = await jsonp('recalc');
-      if (!j.ok) return alert(j.error || 'recalc 실패');
-      alert('완료! 지도 새로고침/타임라인 보기로 확인하세요.');
-    }catch(e){
-      alert(e.message || String(e));
-    }finally{
-      setBusy(false);
-    }
-  }
-
-  async function loadAndRender(){
-    setBusy(true);
-    try{
-      if (!ensureKakaoReady()){
-        hint.textContent = '⚠️ Kakao Maps SDK 미준비 (JS 키/도메인 확인)';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
         return;
       }
-      hint.textContent = '로딩…';
 
-      const day = daySelect.value || '';
-      const data = await jsonp('data', { day });
-      if (!data.ok) {
-        hint.textContent = '⚠️ 데이터 없음 (init/recalc 필요)';
-        return alert(data.error || 'data 실패');
-      }
-
-      populateDaySelect(data.days || []);
-
-      const stops = data.stops || [];
-      if (!stops.length) {
-        hint.textContent = '⚠️ Stops 없음';
-        return alert('Stops 좌표가 없습니다. Stops 입력 후 recalc 해주세요.');
-      }
-
-      clearMap();
-      ensureMap(new kakao.maps.LatLng(stops[0].lat, stops[0].lng));
-      drawMarkers(stops);
-
-      // 도로 라인
-      const route = await jsonp('route', { day });
-      if (route && route.ok) drawRoute(route.pathsByDay || {}, day);
-
-      fitBounds(stops);
-      hint.textContent = '✅ 완료';
-    }catch(e){
-      hint.textContent = '⚠️ 오류';
-      alert(e.message || String(e));
-    }finally{
-      setBusy(false);
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
     }
-  }
 
-  function minText(min){
-    const m = Number(min||0);
-    const h = Math.floor(m/60);
-    const mm = m%60;
-    return h ? `${h}시간 ${mm}분` : `${mm}분`;
-  }
+    function showTimelinePopup(){
+      if (!lastData || !lastData.ok){
+        alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
+        return;
+      }
 
-  function tableToTSV(table){
-    const rows = Array.from(table.querySelectorAll('tr'));
-    return rows.map(tr =>
-      Array.from(tr.children).map(td => td.innerText.replace(/\s+/g,' ').trim()).join('\t')
-    ).join('\n');
-  }
+      const startTime = String(lastData.start_time || '08:30').trim();
+      const pack = buildTimelineForPopup(lastData.stops, lastData.legs, startTime);
 
-  async function openTimelinePopup(){
-    setBusy(true);
-    try{
-      const day = daySelect.value || '';
-      const j = await jsonp('timeline', { day });
-      if (!j.ok) return alert(j.error || 'timeline 실패');
+      const dayLabel = (daySelect.value || '').trim() ? `day ${daySelect.value}` : '전체 day';
 
-      const rows = j.rows || [];
-      if (!rows.length) return alert('Timeline 데이터가 없습니다. recalc 먼저 실행하세요.');
+      const back = document.createElement('div');
+      back.className = 'modalBack';
 
-      const totalsByDay = j.totalsByDay || {};
-      const startTime = (j.config && j.config.start_time) ? String(j.config.start_time) : '08:30';
+      const modal = document.createElement('div');
+      modal.className = 'modal';
 
-      const title = day ? `day ${day}` : '전체 day';
+      const totalHH = `${Math.floor(pack.totalMin/60)}시간 ${pack.totalMin%60}분`;
+      const driveHH = `${Math.floor(pack.sumDrive/60)}시간 ${pack.sumDrive%60}분`;
+      const stayHH  = `${Math.floor(pack.sumStay/60)}시간 ${pack.sumStay%60}분`;
 
-      const totalText = day
-        ? minText(totalsByDay[String(day)] || 0)
-        : Object.keys(totalsByDay).sort((a,b)=>Number(a)-Number(b))
-            .map(dy => `day ${dy}: ${minText(totalsByDay[dy]||0)}`).join(' / ');
+      modal.innerHTML = `
+        <div class="modalHeader">
+          <div class="modalTitle">타임라인 (${escapeHtml(dayLabel)})</div>
+          <div class="pill">시작 ${escapeHtml(startTime)}</div>
+          <div class="pill">이동 ${escapeHtml(driveHH)}</div>
+          <div class="pill">체류 ${escapeHtml(stayHH)}</div>
+          <div class="pill"><b>총 ${escapeHtml(totalHH)}</b></div>
+          <button id="copyBtn" style="margin-left:auto;">복사</button>
+          <button id="closeBtn">닫기</button>
+          <div class="sub" style="width:100%;">
+            ※ 시간은 “도착~출발(hh:mm~hh:mm)”이며, 이동시간은 Legs.drive_min_buf(버퍼 포함)를 사용합니다.
+          </div>
+        </div>
+        <div class="modalBody">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:56px;">#</th>
+                <th style="width:220px;">장소</th>
+                <th>주소</th>
+                <th style="width:150px;">시간</th>
+                <th class="right" style="width:90px;">체류(분)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pack.rows.map(r => `
+                <tr>
+                  <td>${escapeHtml(r.seq)}</td>
+                  <td><b>${escapeHtml(r.name)}</b></td>
+                  <td class="sub">${escapeHtml(r.road_address || '')}</td>
+                  <td>${escapeHtml(r.time_range)}</td>
+                  <td class="right">${escapeHtml(r.stay_min)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
 
-      const w = window.open('', '_blank', 'width=980,height=760');
-      if (!w) return alert('팝업 차단됨: 팝업 허용 후 다시 시도');
+      back.appendChild(modal);
+      document.body.appendChild(back);
 
-      const doc = w.document;
-      doc.open();
-      doc.write('<!doctype html><html><head><meta charset="utf-8"><title></title></head><body></body></html>');
-      doc.close();
-      doc.title = `Timeline - ${title}`;
+      function close(){ back.remove(); }
+      back.addEventListener('click', (e)=>{ if (e.target === back) close(); });
+      modal.querySelector('#closeBtn').addEventListener('click', close);
 
-      const style = doc.createElement('style');
-      style.textContent =
-        'body{font-family:system-ui,-apple-system,sans-serif;margin:16px;}' +
-        '.top{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;}' +
-        '.card{border:1px solid #eee;border-radius:12px;padding:12px 14px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06);}' +
-        'table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;}' +
-        'th,td{border-bottom:1px solid #eee;padding:8px;vertical-align:top;text-align:left;}' +
-        'th{background:#fafafa;position:sticky;top:0;}' +
-        'button{padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;}';
-      doc.head.appendChild(style);
-
-      const top = doc.createElement('div'); top.className = 'top';
-      const c1 = doc.createElement('div'); c1.className='card';
-      c1.innerHTML =
-        `<div><b>${escapeHtml(title)} 타임라인</b></div>
-         <div style="margin-top:6px;color:#666;">출발 시작시간: <b>${escapeHtml(startTime)}</b></div>
-         <div style="margin-top:6px;color:#111;">체류시간 포함 총 소요: <b>${escapeHtml(totalText)}</b></div>`;
-      const c2 = doc.createElement('div'); c2.className='card';
-      const btn = doc.createElement('button'); btn.textContent='표 전체 복사(클립보드)';
-      c2.appendChild(btn);
-      top.appendChild(c1); top.appendChild(c2);
-      doc.body.appendChild(top);
-
-      const table = doc.createElement('table');
-      table.innerHTML =
-        `<thead><tr>
-          <th>day</th><th>seq</th><th>장소</th><th>주소(도로명)</th>
-          <th>타임라인</th><th>체류(분)</th><th>이동(분,buf)</th><th>거리(km)</th><th>경고</th>
-        </tr></thead>`;
-      const tbody = doc.createElement('tbody');
-
-      rows.forEach(r => {
-        const tr = doc.createElement('tr');
-        const tds = [
-          r.day, r.seq, r.place, (r.road_address||''),
-          `${r.arrive||''}~${r.depart||''}`, r.stay_min,
-          (r.drive_from_prev_min_buf||''), (r.leg_dist_km||''), (r.warning||'')
-        ];
-        tds.forEach((v, i) => {
-          const td = doc.createElement('td');
-          td.textContent = String(v ?? '');
-          if (i === 3) td.style.color = '#666';
-          if (i === 8) td.style.color = '#b00';
-          tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-      });
-
-      table.appendChild(tbody);
-      doc.body.appendChild(table);
-
-      btn.addEventListener('click', async () => {
+      modal.querySelector('#copyBtn').addEventListener('click', async ()=>{
         try{
-          const tsv = tableToTSV(table);
-          await w.navigator.clipboard.writeText(tsv);
-          w.alert('복사 완료!');
-        }catch(e){
-          w.alert('복사 실패: 브라우저 권한/HTTPS 확인');
+          await copyTimelineToClipboard(pack.rows, startTime);
+          alert('복사 완료! (엑셀/시트에 붙여넣기 가능)');
+        }catch(err){
+          alert(err.message || String(err));
         }
       });
-
-    }catch(e){
-      alert(e.message || String(e));
-    }finally{
-      setBusy(false);
     }
-  }
 
-  initBtn.addEventListener('click', handleInit);
-  openSheetBtn.addEventListener('click', handleOpenSheet);
-  recalcBtn.addEventListener('click', handleRecalc);
-  reloadBtn.addEventListener('click', loadAndRender);
-  timelineBtn.addEventListener('click', openTimelinePopup);
-  daySelect.addEventListener('change', loadAndRender);
+    // ===== UI events =====
+    initBtn.addEventListener('click', handleInit);
+    recalcBtn.addEventListener('click', handleRecalc);
+    reloadBtn.addEventListener('click', refreshAll);
+    timelineBtn.addEventListener('click', showTimelinePopup);
 
-  // boot
-  if (!CONFIG.KAKAO_JS_KEY || CONFIG.KAKAO_JS_KEY === 'YOUR_KAKAO_JS_KEY') {
-    hint.textContent = '⚠️ KAKAO_JS_KEY 설정 필요';
-  } else if (!ensureKakaoReady()) {
-    hint.textContent = 'SDK 로딩 중…';
-    const t = setInterval(() => {
-      if (ensureKakaoReady()) { clearInterval(t); hint.textContent='✅ 준비됨'; loadAndRender(); }
-    }, 200);
-  } else {
-    hint.textContent='✅ 준비됨';
-    loadAndRender();
-  }
-})();
-</script>
+    daySelect.addEventListener('change', () => refreshAll());
+
+    openSheetBtn.addEventListener('click', async () => {
+      setBusy(true);
+      try {
+        const j = await jsonp('init', {}, 20000);
+        if (!j.ok) throw new Error(j.error || 'init failed');
+        window.open(j.spreadsheetUrl, '_blank');
+      } catch (err) {
+        alert(err.message || String(err));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    // ===== boot =====
+    function boot(){
+      if (window.__kakaoLoadError) {
+        hint.textContent = '⚠️ Kakao SDK 로딩 실패 (JS 키/도메인 등록 확인)';
+        return;
+      }
+      if (!ensureKakaoReady()) {
+        setTimeout(boot, 150);
+        return;
+      }
+      kakao.maps.load(() => {
+        hint.textContent = '✅ Kakao SDK 준비됨';
+        // 초기 로드 시 바로 시도(팀시트가 이미 있다면)
+        refreshAll().catch(()=>{});
+      });
+    }
+    boot();
+  </script>
 </body>
 </html>
