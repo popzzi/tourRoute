@@ -5,39 +5,44 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Tour Route Tool</title>
 
-  <!-- ✅ 1) CONFIG: head에서 주입 -->
+  <!-- =========================
+       CONFIG (head)
+       ========================= -->
   <script>
     window.CONFIG = {
-      // 반드시 /exec URL
+      // ✅ 반드시 /exec URL (Apps Script Web App)
       GAS_WEBAPP_URL: "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec",
-      TEAM_API_TOKEN: "tourtool_2025_wjogpgpwglksjw2362dfd",
-      GAS_AUTHORIZE_URL: "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec?action=authorize",
 
-      // Kakao JS Key (GitHub Pages 도메인 등록 필요)
+      // ✅ 팀 토큰
+      TEAM_API_TOKEN: "tourtool_2025_wjogpgpwglksjw2362dfd",
+
+      // ✅ Kakao JS Key (GitHub Pages 도메인 등록 필요)
       KAKAO_JS_KEY: "2f4cbe8e415272a7af886adf1944dd64"
+
+      // ✅ 샘플 시트 ID (샘플 보기 버튼이 이걸로 엽니다)
+      SAMPLE_SSID: "1NVCsRxQq8S8REpzLYOzWpt3hoej4slbvFB38Oya7mCI"
     };
   </script>
 
-  <!-- ✅ 2) Kakao SDK: 동적 async 로딩 금지! (정적 로딩 + autoload=false) -->
+  <!-- =========================
+       Kakao SDK: 정적 로드 + autoload=false (안전)
+       ========================= -->
   <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64&autoload=false"></script>
 
   <style>
-    :root { --bd:#eee; --tx:#111; --sub:#666; }
-    body { margin:0; font-family: system-ui, -apple-system, sans-serif; color:var(--tx); }
+    :root { --bd:#eee; --tx:#111; --sub:#666; --bg:#fff; }
+    body { margin:0; font-family: system-ui, -apple-system, sans-serif; color:var(--tx); background:var(--bg); }
     header {
-      position: sticky; top: 0;
-      z-index: 1000;
-      background: #fff;
-      border-bottom:1px solid var(--bd);
-      padding:12px 14px;
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      position: sticky; top: 0; z-index: 1000;
+      background: #fff; border-bottom:1px solid var(--bd);
+      padding:12px 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
     }
-    #map { width:100%; height: calc(100vh - 86px); position:relative; z-index:1; }
+    #map { width:100%; height: calc(100vh - 90px); }
     button, select {
       padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer;
-      font-size: 14px;
+      font-size:14px;
     }
-    button:disabled, select:disabled { opacity:.5; cursor:not-allowed; }
+    button:disabled, select:disabled { opacity:.55; cursor:not-allowed; }
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
     .hint { color:var(--sub); font-size:12px; margin-left:auto; display:flex; gap:8px; align-items:center; }
     .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--bd); color:#444; background:#fafafa; }
@@ -46,6 +51,7 @@
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.06); z-index: 900; display:none; }
     .overlay.on { display:block; }
 
+    /* Marker label (번호+장소명 + hover 이미지) */
     .markerLabel{
       position: relative;
       padding: 6px 8px;
@@ -90,8 +96,10 @@
     .btnGhost{ background:#fafafa; }
   </style>
 
-  <!-- ✅ 3) 메인 로직: DOMContentLoaded -->
-  <script>
+  <!-- =========================
+       Main script (defer)
+       ========================= -->
+  <script defer>
   window.addEventListener('DOMContentLoaded', () => {
     const CONFIG = window.CONFIG || {};
 
@@ -100,13 +108,16 @@
      ***********************/
     function jsonp(action, params = {}, opt = {}) {
       const timeoutMs = opt.timeoutMs ?? 90000;
+
       return new Promise((resolve, reject) => {
         const cb = `__cb_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
         const url = new URL(CONFIG.GAS_WEBAPP_URL);
+
         url.searchParams.set('action', action);
         url.searchParams.set('token', CONFIG.TEAM_API_TOKEN);
         url.searchParams.set('callback', cb);
-        url.searchParams.set('_', String(Date.now()));
+        url.searchParams.set('_', String(Date.now())); // cache-bust
+
         Object.entries(params).forEach(([k,v]) => {
           if (v === undefined || v === null) return;
           url.searchParams.set(k, String(v));
@@ -130,7 +141,10 @@
         }
 
         window[cb] = (data) => { cleanup(); resolve(data); };
+
         script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+
+        // ✅ "로드 됐는데 callback 미호출"도 잡기
         script.onload = () => {
           setTimeout(() => {
             if (!done) { cleanup(); reject(new Error('JSONP loaded but callback not called')); }
@@ -143,7 +157,7 @@
     }
 
     /***********************
-     * Kakao SDK ready (autoload=false 대응)
+     * Kakao SDK ready (autoload=false)
      ***********************/
     function waitKakaoMapsReady(timeoutMs = 15000) {
       return new Promise((resolve, reject) => {
@@ -175,10 +189,24 @@
       el.className = 'pill ' + (cls || '');
     }
 
-    function openGoogleLoginThenAuthorize() {
-      const cont = encodeURIComponent(CONFIG.GAS_AUTHORIZE_URL);
-      const url = `https://accounts.google.com/AccountChooser?continue=${cont}`;
-      window.open(url, '_blank', 'noopener');
+    function isIncognitoHint() {
+      // 완벽한 감지는 불가. 안내용 힌트만.
+      return (
+        navigator.cookieEnabled === false ||
+        (navigator.userAgent.includes('Chrome') && location.protocol === 'https:')
+      );
+    }
+
+    // ✅ 로그인/계정선택만 수행 (Drive 파일 열지 않음!)
+    function openGoogleLoginOnly() {
+      window.open('https://accounts.google.com/AccountChooser', '_blank', 'noopener');
+    }
+
+    // ✅ 샘플/내시트 열기는 "로그인 후" 별도 버튼에서 수행
+    function openSpreadsheetById(ssid, newTab = false) {
+      const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(ssid)}/edit?usp=sharing`;
+      if (newTab) window.open(url, '_blank', 'noopener');
+      else window.location.href = url; // ✅ 시크릿/권한 흐름 이슈 최소화
     }
 
     /***********************
@@ -186,7 +214,9 @@
      ***********************/
     const overlay = document.getElementById('overlay');
     const sdkPill = document.getElementById('sdkPill');
-    const authPill = document.getElementById('authPill');
+    const gasPill = document.getElementById('gasPill');
+    const hintText = document.getElementById('hintText');
+
     const daySelect = document.getElementById('daySelect');
 
     const dlg = document.getElementById('dlg');
@@ -194,14 +224,28 @@
     const dlgMeta = document.getElementById('dlgMeta');
     const dlgBody = document.getElementById('dlgBody');
 
-    const actionButtons = [
-      'authBtn','templateBtn','copyBtn','openMySheetBtn','setActiveBtn',
-      'recalcBtn','reloadBtn','timelineBtn','daySelect'
-    ].map(id => document.getElementById(id));
+    // Buttons
+    const authBtn = document.getElementById('authBtn');
+    const sampleBtn = document.getElementById('sampleBtn');
+
+    const copyBtn = document.getElementById('copyBtn');
+    const openMySheetBtn = document.getElementById('openMySheetBtn');
+    const setActiveBtn = document.getElementById('setActiveBtn');
+
+    const recalcBtn = document.getElementById('recalcBtn');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const timelineBtn = document.getElementById('timelineBtn');
+
+    const buttonsForBusy = [
+      authBtn, sampleBtn,
+      copyBtn, openMySheetBtn, setActiveBtn,
+      recalcBtn, reloadBtn, timelineBtn,
+      daySelect
+    ].filter(Boolean);
 
     function setBusy(b) {
       if (overlay) overlay.classList.toggle('on', b);
-      actionButtons.forEach(el => { if (el) el.disabled = b; });
+      buttonsForBusy.forEach(el => el.disabled = b);
     }
 
     /***********************
@@ -226,7 +270,7 @@
         : '';
       return `
         <div class="markerLabel" data-hasimg="${hasImg ? '1' : '0'}">
-          <div><b>${stop.seq}</b><span class="nm">${escapeHtml(stop.name)}</span></div>
+          <div><b>${escapeHtml(stop.seq)}</b><span class="nm">${escapeHtml(stop.name)}</span></div>
           ${imgHtml}
         </div>
       `;
@@ -263,6 +307,7 @@
 
       clearMap();
 
+      // markers
       stops.forEach(s => {
         const pos = new kakao.maps.LatLng(s.lat, s.lng);
         const ov = new kakao.maps.CustomOverlay({
@@ -276,6 +321,7 @@
 
       setTimeout(attachMarkerHoverOnce, 0);
 
+      // polylines (day별 색)
       Object.keys(pathsByDay || {}).forEach((dy, idx) => {
         if (selectedDay && String(dy) !== String(selectedDay)) return;
         const pts = pathsByDay[dy] || [];
@@ -295,32 +341,34 @@
         polylines.push(poly);
       });
 
+      // bounds
       const bounds = new kakao.maps.LatLngBounds();
       stops.forEach(s => bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)));
       map.setBounds(bounds);
     }
 
     /***********************
-     * Data / timeline popup
+     * Data / Timeline popup
      ***********************/
     let lastData = null;
 
     function buildDayOptionsFromStops(stops) {
-      if (!daySelect) return;
       const days = Array.from(new Set((stops || []).map(s => String(s.day)).filter(Boolean)))
         .map(Number).filter(Number.isFinite)
         .sort((a,b) => a-b);
 
-      const current = daySelect.value;
-      daySelect.innerHTML = `<option value="">전체 day</option>` + days.map(d => `<option value="${d}">day ${d}</option>`).join('');
-      if (days.includes(Number(current))) daySelect.value = current;
-      else daySelect.value = '';
+      const current = daySelect ? daySelect.value : '';
+      if (daySelect) {
+        daySelect.innerHTML =
+          `<option value="">전체 day</option>` +
+          days.map(d => `<option value="${d}">day ${d}</option>`).join('');
+        daySelect.value = days.includes(Number(current)) ? current : '';
+      }
     }
 
     async function refreshAll() {
       const day = (daySelect && daySelect.value) ? daySelect.value : '';
 
-      // ✅ SDK 준비 대기(autoload=false)
       await waitKakaoMapsReady();
 
       const data = await jsonp('data', { day }, { timeoutMs: 90000 });
@@ -335,12 +383,6 @@
       renderStopsAndRoute(data.stops || [], route.pathsByDay || {}, day);
     }
 
-    async function runRecalc() {
-      const j = await jsonp('recalc', {}, { timeoutMs: 180000 });
-      if (!j.ok) throw new Error(j.error || 'recalc failed');
-      alert('경로 계산 완료! 이제 "지도 새로고침"을 누르세요.');
-    }
-
     function tableToTSV(table) {
       const rows = Array.from(table.querySelectorAll('tr'));
       return rows.map(tr => {
@@ -349,7 +391,7 @@
       }).join('\n');
     }
 
-    async function copyTSV(text) {
+    async function copyText(text) {
       try {
         await navigator.clipboard.writeText(text);
       } catch (_) {
@@ -363,7 +405,8 @@
     }
 
     function openTimelinePopup() {
-      if (!lastData?.ok) return alert('먼저 데이터 로드가 필요합니다. "지도 새로고침"을 눌러주세요.');
+      if (!lastData?.ok) return alert('먼저 "지도 새로고침"으로 데이터를 로드하세요.');
+
       const stops = lastData.stops || [];
       const legs = lastData.legs || [];
       const day = (daySelect && daySelect.value) ? daySelect.value : '';
@@ -375,8 +418,8 @@
       const totalStay = filteredStops.reduce((sum, s) => sum + Number(s.stay_min || 0), 0);
       const totalAll = totalDrive + totalStay;
 
-      if (dlgTitle) dlgTitle.textContent = `타임라인 ${day ? `(day ${day})` : '(전체)'}`;
-      if (dlgMeta) dlgMeta.textContent = `이동 ${totalDrive}분 + 체류 ${totalStay}분 = 총 ${totalAll}분`;
+      dlgTitle.textContent = `타임라인 ${day ? `(day ${day})` : '(전체)'}`;
+      dlgMeta.textContent = `이동 ${totalDrive}분 + 체류 ${totalStay}분 = 총 ${totalAll}분`;
 
       const rows = filteredStops
         .sort((a,b) => Number(a.day)-Number(b.day) || Number(a.seq)-Number(b.seq))
@@ -394,145 +437,143 @@
           `;
         }).join('');
 
-      if (dlgBody) {
-        dlgBody.innerHTML = `
-          <div class="muted" style="margin-bottom:10px;">
-            ※ Timeline 시트(도착/출발 hh:mm 포함)는 "경로 계산" 시 갱신됩니다.
-          </div>
-          <table id="tlTable">
-            <thead>
-              <tr>
-                <th class="right">day</th>
-                <th class="right">seq</th>
-                <th>place</th>
-                <th>road_address</th>
-                <th class="right">stay(min)</th>
-                <th>status</th>
-              </tr>
-            </thead>
-            <tbody>${rows || ''}</tbody>
-          </table>
-        `;
-      }
+      dlgBody.innerHTML = `
+        <div class="muted" style="margin-bottom:10px;">
+          ※ Timeline 시트(도착/출발 hh:mm 포함)는 "경로 계산" 시 갱신됩니다.
+        </div>
+        <table id="tlTable">
+          <thead>
+            <tr>
+              <th class="right">day</th>
+              <th class="right">seq</th>
+              <th>place</th>
+              <th>road_address</th>
+              <th class="right">stay(min)</th>
+              <th>status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
 
-      if (dlg && dlg.showModal) dlg.showModal();
+      dlg.showModal();
     }
 
-    const closeDlgBtn = document.getElementById('closeDlgBtn');
-    if (closeDlgBtn && dlg) closeDlgBtn.addEventListener('click', () => dlg.close());
-
-    const copyTableBtn = document.getElementById('copyTableBtn');
-    if (copyTableBtn) copyTableBtn.addEventListener('click', async () => {
+    document.getElementById('closeDlgBtn')?.addEventListener('click', () => dlg.close());
+    document.getElementById('copyTableBtn')?.addEventListener('click', async () => {
       const table = document.getElementById('tlTable');
       if (!table) return alert('복사할 테이블이 없습니다.');
-      await copyTSV(tableToTSV(table));
+      await copyText(tableToTSV(table));
       alert('복사 완료!');
     });
 
     /***********************
-     * Button handlers
+     * Events (role-separated)
      ***********************/
-    document.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
+    authBtn?.addEventListener('click', () => {
+      // ✅ 로그인/계정선택만
+      openGoogleLoginOnly();
+    });
 
-      const id = btn.id;
+    sampleBtn?.addEventListener('click', () => {
+      if (!CONFIG.SAMPLE_SSID) {
+        alert('CONFIG.SAMPLE_SSID가 설정되지 않았습니다.');
+        return;
+      }
+      // ✅ 샘플 시트 열기 (로그인 후 별도 동작)
+      openSpreadsheetById(CONFIG.SAMPLE_SSID, false);
+    });
 
+    copyBtn?.addEventListener('click', async () => {
       try {
-        if (id === 'authBtn') {
-          // ✅ 구글 로그인/계정선택 → authorize
-          openGoogleLoginThenAuthorize();
-          return;
-        }
-
         setBusy(true);
-
-        if (id === 'templateBtn') {
-          const j = await jsonp('templateInfo', {}, { timeoutMs: 30000 });
-          if (!j.ok) return alert(j.error || 'templateInfo 실패');
-          window.open(j.templateUrl, '_blank');
-        }
-
-        if (id === 'copyBtn') {
-          const j = await jsonp('makeCopy', {}, { timeoutMs: 180000 });
-          if (!j.ok) return alert(j.error || '복사 실패');
-          setPill(authPill, '내 시트 OK', 'ok');
-          alert(`내 시트 생성 완료!\n${j.name}\n${j.spreadsheetUrl}`);
-          window.open(j.spreadsheetUrl, '_blank');
-        }
-
-        if (id === 'openMySheetBtn') {
-          const j = await jsonp('openSheet', {}, { timeoutMs: 60000 });
-          if (!j.ok) return alert(j.error || '내 시트가 없습니다. "내 시트 만들기(복사)"부터 해주세요.');
-          window.location.href = j.spreadsheetUrl;
-        }
-
-        if (id === 'setActiveBtn') {
-          const ssid = prompt('연결할 스프레드시트 ID를 입력하세요\n(https://docs.google.com/spreadsheets/d/XXXX/edit 에서 XXXX)');
-          if (!ssid) return;
-          const j = await jsonp('setActive', { ssid }, { timeoutMs: 60000 });
-          if (!j.ok) return alert(j.error || 'setActive 실패');
-          setPill(authPill, '내 시트 OK', 'ok');
-          alert(`연결 완료: ${j.name}`);
-        }
-
-        if (id === 'recalcBtn') {
-          const j = await jsonp('recalc', {}, { timeoutMs: 180000 });
-          if (!j.ok) return alert(j.error || 'recalc 실패');
-          alert('경로 계산 완료! 이제 "지도 새로고침"을 누르세요.');
-        }
-
-        if (id === 'reloadBtn') {
-          await refreshAll();
-        }
-
-        if (id === 'timelineBtn') {
-          openTimelinePopup();
-        }
-
-      } catch (err) {
-        const msg = safeMsg(err);
-
-        if (msg.includes('JSONP load error') || msg.includes('callback not called')) {
-          setPill(authPill, '승인 필요', 'danger');
-          alert(
-            `권한/로그인 문제로 요청이 완료되지 않았습니다.\n\n` +
-            `${msg}\n\n` +
-            `1) "권한 승인" 버튼으로 로그인/승인\n` +
-            `2) 시크릿 모드는 실패할 수 있음`
-          );
-        } else if (msg.includes('Unauthorized') || msg.includes('token')) {
-          alert('TEAM_API_TOKEN이 잘못되었거나 누락되었습니다.\nCONFIG.TEAM_API_TOKEN을 확인하세요.');
-        } else if (msg.includes('Kakao SDK load timeout')) {
-          setPill(sdkPill, 'SDK 미로드', 'danger');
-          alert('Kakao Maps SDK 로딩이 지연/실패했습니다.\n1) JS 키\n2) 도메인 등록\n3) 네트워크를 확인하세요.');
-        } else {
-          alert(msg);
-        }
+        const j = await jsonp('makeCopy', {}, { timeoutMs: 180000 });
+        if (!j.ok) return alert(j.error || '복사 실패');
+        alert(`내 시트 생성 완료!\n${j.name}\n\n이제 "내 시트 열기" 또는 "지도 새로고침"을 진행하세요.`);
+      } catch (e) {
+        alert(safeMsg(e));
       } finally {
         setBusy(false);
       }
     });
 
-    if (daySelect) {
-      daySelect.addEventListener('change', async () => {
-        try {
-          setBusy(true);
-          await refreshAll();
-        } catch (err) {
-          alert(safeMsg(err));
-        } finally {
-          setBusy(false);
-        }
-      });
-    }
+    openMySheetBtn?.addEventListener('click', async () => {
+      try {
+        setBusy(true);
+        const j = await jsonp('openSheet', {}, { timeoutMs: 60000 });
+        if (!j.ok) return alert(j.error || '내 시트가 없습니다. "내 시트 만들기(복사)"부터 해주세요.');
+        // ✅ 시크릿/쿠키 문제 회피: 현재탭 이동
+        window.location.href = j.spreadsheetUrl;
+      } catch (e) {
+        alert(safeMsg(e));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    setActiveBtn?.addEventListener('click', async () => {
+      const ssid = prompt('연결할 스프레드시트 ID를 입력하세요\n(https://docs.google.com/spreadsheets/d/XXXX/edit 에서 XXXX)');
+      if (!ssid) return;
+      try {
+        setBusy(true);
+        const j = await jsonp('setActive', { ssid }, { timeoutMs: 60000 });
+        if (!j.ok) return alert(j.error || 'setActive 실패');
+        alert(`연결 완료: ${j.name}\n이제 "지도 새로고침"을 누르세요.`);
+      } catch (e) {
+        alert(safeMsg(e));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    recalcBtn?.addEventListener('click', async () => {
+      try {
+        setBusy(true);
+        const j = await jsonp('recalc', {}, { timeoutMs: 180000 });
+        if (!j.ok) return alert(j.error || 'recalc 실패');
+        alert('경로 계산 완료! 이제 "지도 새로고침"을 누르세요.');
+      } catch (e) {
+        alert(safeMsg(e));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    reloadBtn?.addEventListener('click', async () => {
+      try {
+        setBusy(true);
+        await refreshAll();
+      } catch (e) {
+        alert(safeMsg(e));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    timelineBtn?.addEventListener('click', () => openTimelinePopup());
+
+    daySelect?.addEventListener('change', async () => {
+      try {
+        setBusy(true);
+        await refreshAll();
+      } catch (e) {
+        alert(safeMsg(e));
+      } finally {
+        setBusy(false);
+      }
+    });
 
     /***********************
      * Boot
      ***********************/
     (async function boot(){
-      // SDK pill
-      setPill(sdkPill, 'SDK 로딩 대기…', '');
+      // 안내문
+      if (hintText) {
+        hintText.textContent =
+          '※ "권한승인(로그인)"은 로그인만 수행합니다. 시트는 "샘플 시트 열기/내 시트 열기"로 여세요. (시크릿 모드에서는 Drive 접근이 제한될 수 있음)';
+      }
+
+      setPill(sdkPill, 'SDK 로딩…', '');
       try {
         await waitKakaoMapsReady(15000);
         setPill(sdkPill, 'SDK OK', 'ok');
@@ -540,31 +581,29 @@
         setPill(sdkPill, 'SDK 미로드', 'danger');
       }
 
-      // health
+      setPill(gasPill, 'GAS 체크…', '');
       try {
         const j = await jsonp('health', {}, { timeoutMs: 20000 });
-        setPill(authPill, j.ok ? 'GAS OK' : 'GAS 응답 이상', j.ok ? 'ok' : 'danger');
+        setPill(gasPill, j.ok ? 'GAS OK' : 'GAS 응답 이상', j.ok ? 'ok' : 'danger');
       } catch {
-        setPill(authPill, 'GAS 연결 실패', 'danger');
+        setPill(gasPill, 'GAS 연결 실패', 'danger');
       }
 
-      // active sheet 확인 후 자동 로드
+      // active가 있으면 자동 로드(가능한 경우만)
       try {
         const j = await jsonp('getActive', {}, { timeoutMs: 30000 });
         if (j.ok && j.active) {
-          setPill(authPill, '내 시트 OK', 'ok');
-          try {
-            setBusy(true);
-            await refreshAll();
-          } finally { setBusy(false); }
-        } else {
-          setPill(authPill, '내 시트 없음', 'danger');
+          // 자동 로드는 강제하지 않고, 사용자에게 알림만
+          setPill(gasPill, '내 시트 연결됨', 'ok');
         }
       } catch {
-        setPill(authPill, '승인 필요', 'danger');
+        // ignore
+      }
+
+      if (isIncognitoHint()) {
+        console.log('Incognito hint: may cause Drive open issues.');
       }
     })();
-
   });
   </script>
 </head>
@@ -576,8 +615,10 @@
     <div class="row">
       <strong>Tour Route Tool</strong>
 
-      <button id="authBtn" class="btnGhost">권한 승인(로그인)</button>
-      <button id="templateBtn">샘플 시트 보기</button>
+      <!-- ✅ 역할 분리 -->
+      <button id="authBtn" class="btnGhost">권한승인(로그인)</button>
+      <button id="sampleBtn">샘플 시트 열기</button>
+
       <button id="copyBtn">내 시트 만들기(복사)</button>
       <button id="openMySheetBtn">내 시트 열기</button>
       <button id="setActiveBtn" class="btnGhost">내 시트 연결(SSID)</button>
@@ -593,8 +634,12 @@
 
       <span class="hint">
         <span class="pill" id="sdkPill">SDK 확인중…</span>
-        <span class="pill" id="authPill">권한 상태 확인중…</span>
+        <span class="pill" id="gasPill">GAS 확인중…</span>
       </span>
+    </div>
+
+    <div class="row" style="margin-top:6px;">
+      <span class="muted" id="hintText"></span>
     </div>
   </header>
 
@@ -612,4 +657,3 @@
   </dialog>
 </body>
 </html>
-
