@@ -4,34 +4,49 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Tour Route Tool</title>
+
   <style>
     body { margin:0; font-family: system-ui, -apple-system, sans-serif; }
-    header { position: sticky; top:0; z-index:10; padding:12px 14px; border-bottom:1px solid #eee; background:#fff; }
+    header {
+      position: sticky;
+      top:0;
+      z-index:10;
+      padding:12px 14px;
+      border-bottom:1px solid #eee;
+      background:#fff;
+    }
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     #map { width:100%; height: calc(100vh - 74px); }
-    button, select { padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer; }
+    button, select {
+      padding:8px 10px;
+      border:1px solid #ddd;
+      border-radius:10px;
+      background:#fff;
+      cursor:pointer;
+    }
     button:disabled, select:disabled { opacity:.5; cursor:not-allowed; }
     .hint { color:#666; font-size:12px; margin-left:auto; }
     .btn-primary { border-color:#111; }
     .btn-warn { border-color:#cc3; }
   </style>
 
-  <!-- Kakao Maps SDK -->
-  <script id="kakaoSdk"></script>
-
+  <!-- Kakao Maps SDK (동적으로 삽입) -->
   <script>
-    // ✅ 너 값으로 교체
-    const CONFIG = {
+    window.CONFIG = {
       GAS_WEBAPP_URL: "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec",
       TEAM_API_TOKEN: "tourtool_2025_wjogpgpwglksjw2362dfd",
       KAKAO_JS_KEY: "2f4cbe8e415272a7af886adf1944dd64",
     };
 
-    // SDK 로드
-    (function loadKakao() {
-      const s = document.getElementById('kakaoSdk');
-      s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(CONFIG.KAKAO_JS_KEY)}`;
+    (function loadKakaoSDK(){
+      var s = document.createElement('script');
+      s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(window.CONFIG.KAKAO_JS_KEY);
       s.async = true;
+      s.onload = function(){ /* ready check는 boot에서 */ };
+      s.onerror = function(){
+        console.warn('Kakao SDK load error');
+      };
+      document.head.appendChild(s);
     })();
   </script>
 </head>
@@ -58,46 +73,57 @@
 <div id="map"></div>
 
 <script>
-  const $ = (id) => document.getElementById(id);
+(function(){
+  var CONFIG = window.CONFIG;
 
-  const initBtn = $('initBtn');
-  const recalcBtn = $('recalcBtn');
-  const reloadBtn = $('reloadBtn');
-  const timelineBtn = $('timelineBtn');
-  const daySelect = $('daySelect');
-  const hint = $('hint');
+  function $(id){ return document.getElementById(id); }
+
+  var initBtn = $('initBtn');
+  var recalcBtn = $('recalcBtn');
+  var reloadBtn = $('reloadBtn');
+  var timelineBtn = $('timelineBtn');
+  var daySelect = $('daySelect');
+  var hint = $('hint');
 
   function setBusy(b){
-    [initBtn, recalcBtn, reloadBtn, timelineBtn, daySelect].forEach(el => el.disabled = b);
+    [initBtn, recalcBtn, reloadBtn, timelineBtn, daySelect].forEach(function(el){
+      if (el) el.disabled = !!b;
+    });
   }
 
-  function ensureKakaoReady() {
+  function ensureKakaoReady(){
     return (typeof kakao !== 'undefined' && kakao.maps && typeof kakao.maps.LatLng === 'function');
   }
 
-  function escapeHtml(s) {
-    return String(s || '')
-      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-      .replaceAll('"','&quot;').replaceAll("'","&#39;");
+  function escapeHtml(s){
+    return String(s ?? '')
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'","&#39;");
   }
 
   // ✅ JSONP (90초)
-  function jsonp(action, params = {}) {
-    return new Promise((resolve, reject) => {
-      const cb = `cb${Date.now()}${Math.floor(Math.random()*1e6)}`; // 짧고 안전
-      const url = new URL(CONFIG.GAS_WEBAPP_URL);
+  function jsonp(action, params){
+    params = params || {};
+    return new Promise(function(resolve, reject){
+      var cb = 'cb' + Date.now() + Math.floor(Math.random()*1e6);
+      var url = new URL(CONFIG.GAS_WEBAPP_URL);
       url.searchParams.set('action', action);
       url.searchParams.set('token', CONFIG.TEAM_API_TOKEN);
       url.searchParams.set('callback', cb);
-      Object.entries(params).forEach(([k,v]) => {
+
+      Object.keys(params).forEach(function(k){
+        var v = params[k];
         if (v === undefined || v === null) return;
         url.searchParams.set(k, String(v));
       });
 
-      const script = document.createElement('script');
-      let done = false;
+      var script = document.createElement('script');
+      var done = false;
 
-      const timer = setTimeout(() => {
+      var timer = setTimeout(function(){
         cleanup();
         reject(new Error('JSONP timeout'));
       }, 90000);
@@ -110,12 +136,12 @@
         if (script && script.parentNode) script.parentNode.removeChild(script);
       }
 
-      window[cb] = (data) => {
+      window[cb] = function(data){
         cleanup();
         resolve(data);
       };
 
-      script.onerror = () => {
+      script.onerror = function(){
         cleanup();
         reject(new Error('JSONP load error'));
       };
@@ -126,68 +152,70 @@
   }
 
   // 지도 렌더링 상태
-  let map = null;
-  let markers = [];
-  let polylines = []; // day별 다색 가능
+  var map = null;
+  var overlays = [];  // marker + customOverlay
+  var polylines = [];
 
-  function clearMap() {
-    markers.forEach(m => m.setMap(null));
-    markers = [];
-    polylines.forEach(p => p.setMap(null));
+  function clearMap(){
+    overlays.forEach(function(o){
+      try { o.setMap(null); } catch(e){}
+    });
+    overlays = [];
+    polylines.forEach(function(p){
+      try { p.setMap(null); } catch(e){}
+    });
     polylines = [];
   }
 
-  function ensureMap(centerLatLng) {
+  function ensureMap(center){
     if (!map) {
-      map = new kakao.maps.Map(document.getElementById('map'), { center: centerLatLng, level: 7 });
+      map = new kakao.maps.Map(document.getElementById('map'), { center: center, level: 7 });
     } else {
-      map.setCenter(centerLatLng);
+      map.setCenter(center);
     }
   }
 
-  // day별 색상(고정 팔레트)
-  const DAY_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2'];
+  var DAY_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2'];
 
-  function drawStopsMarkers(stops) {
-    stops.forEach(s => {
-      const pos = new kakao.maps.LatLng(s.lat, s.lng);
+  function drawStopsMarkers(stops){
+    stops.forEach(function(s){
+      var pos = new kakao.maps.LatLng(s.lat, s.lng);
 
-      // 커스텀 오버레이로 “번호 + 이름” 표시
-      const content = `
-        <div style="
-          background:#fff;border:1px solid #ddd;border-radius:999px;
-          padding:4px 8px;box-shadow:0 2px 8px rgba(0,0,0,.08);
-          font-size:12px;white-space:nowrap;">
-          <b style="margin-right:6px;">${escapeHtml(s.seq)}</b>
-          ${escapeHtml(s.name)}
-        </div>`;
-      const overlay = new kakao.maps.CustomOverlay({
+      var marker = new kakao.maps.Marker({ position: pos, map: map });
+      overlays.push(marker);
+
+      var content =
+        '<div style="' +
+          'background:#fff;border:1px solid #ddd;border-radius:999px;' +
+          'padding:4px 8px;box-shadow:0 2px 8px rgba(0,0,0,.08);' +
+          'font-size:12px;white-space:nowrap;' +
+        '">' +
+          '<b style="margin-right:6px;">' + escapeHtml(s.seq) + '</b>' +
+          escapeHtml(s.name) +
+        '</div>';
+
+      var overlay = new kakao.maps.CustomOverlay({
         position: pos,
-        content,
+        content: content,
         yAnchor: 1.3
       });
-
-      const marker = new kakao.maps.Marker({ position: pos, map });
       overlay.setMap(map);
-
-      markers.push(marker);
-      markers.push(overlay); // overlay도 같이 clearMap에서 제거되도록
+      overlays.push(overlay);
     });
   }
 
-  function drawRoutePolylines(pathsByDay, selectedDay) {
-    const days = Object.keys(pathsByDay).sort((a,b)=>Number(a)-Number(b));
-    days.forEach((dy, idx) => {
+  function drawRoutePolylines(pathsByDay, selectedDay){
+    var days = Object.keys(pathsByDay || {}).sort(function(a,b){ return Number(a)-Number(b); });
+    days.forEach(function(dy){
       if (selectedDay && String(selectedDay) !== String(dy)) return;
-
-      const pts = pathsByDay[dy] || [];
+      var pts = pathsByDay[dy] || [];
       if (!pts.length) return;
 
-      const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
-      const color = DAY_COLORS[(Number(dy)-1) % DAY_COLORS.length];
+      var path = pts.map(function(p){ return new kakao.maps.LatLng(p.lat, p.lng); });
+      var color = DAY_COLORS[(Number(dy)-1) % DAY_COLORS.length];
 
-      const poly = new kakao.maps.Polyline({
-        path,
+      var poly = new kakao.maps.Polyline({
+        path: path,
         strokeWeight: 5,
         strokeOpacity: 0.8,
         strokeColor: color,
@@ -198,62 +226,63 @@
     });
   }
 
-  function fitBoundsFromStops(stops) {
-    const bounds = new kakao.maps.LatLngBounds();
-    stops.forEach(s => bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)));
+  function fitBoundsFromStops(stops){
+    var bounds = new kakao.maps.LatLngBounds();
+    stops.forEach(function(s){
+      bounds.extend(new kakao.maps.LatLng(s.lat, s.lng));
+    });
     map.setBounds(bounds);
   }
 
-  function populateDaySelect(days) {
-    // 기존 옵션 제거(첫 옵션 제외)
+  function populateDaySelect(days){
     while (daySelect.options.length > 1) daySelect.remove(1);
-    (days || []).forEach(dy => {
-      const opt = document.createElement('option');
+    (days || []).forEach(function(dy){
+      var opt = document.createElement('option');
       opt.value = String(dy);
-      opt.textContent = `day ${dy}`;
+      opt.textContent = 'day ' + dy;
       daySelect.appendChild(opt);
     });
   }
 
-  async function handleInit() {
+  async function handleInit(){
     setBusy(true);
     try {
-      const j = await jsonp('init');
+      var j = await jsonp('init');
       if (!j.ok) return alert(j.error || 'init 실패');
-      alert(`팀 시트 연결 완료!\n${j.name}\n${j.spreadsheetUrl}`);
-    } catch (e) {
+      alert('팀 시트 연결 완료!\n' + j.name + '\n' + j.spreadsheetUrl);
+    } catch(e){
       alert(e.message || String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleRecalc() {
+  async function handleRecalc(){
     setBusy(true);
-    try {
-      const j = await jsonp('recalc');
+    try{
+      var j = await jsonp('recalc');
       if (!j.ok) return alert(j.error || 'recalc 실패');
       alert('완료! 이제 지도 새로고침/타임라인 보기를 누르세요.');
-    } catch (e) {
+    } catch(e){
       alert(e.message || String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function loadAndRender() {
+  async function loadAndRender(){
     setBusy(true);
-    try {
-      if (!ensureKakaoReady()) {
+    try{
+      if (!ensureKakaoReady()){
         hint.textContent = 'Kakao Maps SDK 로딩 대기…(도메인/JS 키 확인)';
         return;
       }
       hint.textContent = '데이터 로딩…';
 
-      const day = daySelect.value || '';
-      const data = await jsonp('data', { day });
+      var day = daySelect.value || '';
+      var data = await jsonp('data', { day: day });
 
-      if (!data.ok) {
+      if (!data.ok){
         alert(data.error || 'data 실패');
         hint.textContent = '⚠️ 데이터 없음 (init/recalc 필요)';
         return;
@@ -261,8 +290,8 @@
 
       populateDaySelect(data.days || []);
 
-      const stops = data.stops || [];
-      if (!stops.length) {
+      var stops = data.stops || [];
+      if (!stops.length){
         alert('Stops 좌표가 없습니다.\n1) Stops 입력\n2) recalc\n3) 다시 시도');
         return;
       }
@@ -271,15 +300,15 @@
       ensureMap(new kakao.maps.LatLng(stops[0].lat, stops[0].lng));
       drawStopsMarkers(stops);
 
-      // 도로형 경로
-      const route = await jsonp('route', { day });
-      if (route.ok) {
+      // 도로형 route
+      var route = await jsonp('route', { day: day });
+      if (route && route.ok){
         drawRoutePolylines(route.pathsByDay || {}, day);
       }
 
       fitBoundsFromStops(stops);
       hint.textContent = '✅ 로드 완료';
-    } catch (e) {
+    } catch(e){
       alert(e.message || String(e));
       hint.textContent = '⚠️ 오류';
     } finally {
@@ -287,107 +316,164 @@
     }
   }
 
-  function formatMin(min) {
-    const m = Number(min||0);
-    const h = Math.floor(m/60);
-    const mm = m%60;
-    return h ? `${h}시간 ${mm}분` : `${mm}분`;
+  // ==========================
+  // 팝업 (DOM 조립 방식: 백틱/템플릿 리터럴 문제 원천 제거)
+  // ==========================
+  function formatMin(min){
+    var m = Number(min || 0);
+    var h = Math.floor(m / 60);
+    var mm = m % 60;
+    return h ? (h + '시간 ' + mm + '분') : (mm + '분');
   }
 
-  async function openTimelinePopup() {
+  function tableToTSV(doc, tableEl){
+    var rows = Array.from(tableEl.querySelectorAll('tr'));
+    return rows.map(function(tr){
+      return Array.from(tr.children).map(function(td){
+        return td.innerText.replace(/\s+/g,' ').trim();
+      }).join('\t');
+    }).join('\n');
+  }
+
+  async function openTimelinePopup(){
     setBusy(true);
-    try {
-      const day = daySelect.value || '';
-      const j = await jsonp('timeline', { day });
+    try{
+      var day = daySelect.value || '';
+      var j = await jsonp('timeline', { day: day });
       if (!j.ok) return alert(j.error || 'timeline 실패');
 
-      const rows = j.rows || [];
+      var rows = j.rows || [];
       if (!rows.length) return alert('Timeline 데이터가 없습니다. recalc 먼저 실행하세요.');
 
-      const totalsByDay = j.totalsByDay || {};
-      const startTime = (j.config && j.config.start_time) ? j.config.start_time : '08:30';
+      var totalsByDay = j.totalsByDay || {};
+      var startTime = (j.config && j.config.start_time) ? String(j.config.start_time) : '08:30';
 
-      // 팝업 HTML
-      const w = window.open('', '_blank', 'width=960,height=720');
-      const safeDay = day ? `day ${day}` : '전체 day';
+      var safeDayTitle = day ? ('day ' + day) : '전체 day';
 
-      const totalText = day
+      var totalText = day
         ? formatMin(totalsByDay[String(day)] || 0)
-        : Object.keys(totalsByDay).sort((a,b)=>Number(a)-Number(b))
-            .map(dy => `day ${dy}: ${formatMin(totalsByDay[dy] || 0)}`).join(' / ');
+        : Object.keys(totalsByDay).sort(function(a,b){ return Number(a)-Number(b); })
+            .map(function(dy){ return 'day ' + dy + ': ' + formatMin(totalsByDay[dy] || 0); }).join(' / ');
 
-      const tableRows = rows.map(r => {
-        const timelineRange = `${escapeHtml(r.arrive)}~${escapeHtml(r.depart)}`;
-        return `
-          <tr>
-            <td>${escapeHtml(r.day)}</td>
-            <td>${escapeHtml(r.seq)}</td>
-            <td>${escapeHtml(r.place)}</td>
-            <td style="color:#666;">${escapeHtml(r.road_address||'')}</td>
-            <td>${timelineRange}</td>
-            <td>${escapeHtml(r.stay_min)}</td>
-            <td>${escapeHtml(r.drive_from_prev_min_buf||'')}</td>
-            <td>${escapeHtml(r.leg_dist_km||'')}</td>
-            <td style="color:#b00;">${escapeHtml(r.warning||'')}</td>
-          </tr>
-        `;
-      }).join('');
+      var w = window.open('', '_blank', 'width=980,height=760');
+      if (!w) return alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도하세요.');
 
-      const html = `
-<!doctype html><html><head><meta charset="utf-8">
-<title>Timeline - ${safeDay}</title>
-<style>
-  body{font-family:system-ui,-apple-system,sans-serif;margin:16px;}
-  .top{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;}
-  .card{border:1px solid #eee;border-radius:12px;padding:12px 14px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06);}
-  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;}
-  th,td{border-bottom:1px solid #eee;padding:8px;vertical-align:top;text-align:left;}
-  th{background:#fafafa;position:sticky;top:0;}
-  button{padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;}
-</style></head><body>
-  <div class="top">
-    <div class="card">
-      <div><b>${escapeHtml(safeDay)} 타임라인</b></div>
-      <div style="margin-top:6px;color:#666;">출발 시작시간(Config.start_time): <b>${escapeHtml(startTime)}</b></div>
-      <div style="margin-top:6px;color:#111;">체류시간 포함 총 소요: <b>${escapeHtml(totalText)}</b></div>
-    </div>
-    <div class="card">
-      <button id="copyBtn">표 전체 복사(클립보드)</button>
-      <div style="margin-top:8px;color:#666;font-size:12px;">복사 후 스프레드시트/문서에 붙여넣기 가능</div>
-    </div>
-  </div>
+      var doc = w.document;
+      doc.open();
+      doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+      doc.close();
 
-  <table id="tbl">
-    <thead>
-      <tr>
-        <th>day</th><th>seq</th><th>장소</th><th>주소(도로명)</th>
-        <th>타임라인</th><th>체류(분)</th><th>이동(분,buf)</th><th>거리(km)</th><th>경고</th>
-      </tr>
-    </thead>
-    <tbody>${tableRows}</tbody>
-  </table>
+      doc.title = 'Timeline - ' + safeDayTitle;
 
-<script>
-  function tableToTSV(){
-    const rows = Array.from(document.querySelectorAll('#tbl tr'));
-    return rows.map(tr => Array.from(tr.children).map(td => td.innerText.replace(/\\s+/g,' ').trim()).join('\\t')).join('\\n');
-  }
-  document.getElementById('copyBtn').addEventListener('click', async () => {
-    try{
-      const tsv = tableToTSV();
-      await navigator.clipboard.writeText(tsv);
-      alert('복사 완료!');
-    }catch(e){
-      alert('복사 실패: 브라우저 권한/HTTPS 환경을 확인하세요.');
-    }
-  });
-</script>
-</body></html>`;
+      // 스타일
+      var style = doc.createElement('style');
+      style.textContent =
+        'body{font-family:system-ui,-apple-system,sans-serif;margin:16px;}' +
+        '.top{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;}' +
+        '.card{border:1px solid #eee;border-radius:12px;padding:12px 14px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06);}' +
+        'table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;}' +
+        'th,td{border-bottom:1px solid #eee;padding:8px;vertical-align:top;text-align:left;}' +
+        'th{background:#fafafa;position:sticky;top:0;}' +
+        'button{padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;}';
+      doc.head.appendChild(style);
 
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-    } catch (e) {
+      // 상단 카드
+      var top = doc.createElement('div');
+      top.className = 'top';
+
+      var card1 = doc.createElement('div');
+      card1.className = 'card';
+
+      var title = doc.createElement('div');
+      var b = doc.createElement('b');
+      b.textContent = safeDayTitle + ' 타임라인';
+      title.appendChild(b);
+
+      var st = doc.createElement('div');
+      st.style.marginTop = '6px';
+      st.style.color = '#666';
+      st.innerHTML = '출발 시작시간(Config.start_time): <b>' + escapeHtml(startTime) + '</b>';
+
+      var tot = doc.createElement('div');
+      tot.style.marginTop = '6px';
+      tot.style.color = '#111';
+      tot.innerHTML = '체류시간 포함 총 소요: <b>' + escapeHtml(totalText) + '</b>';
+
+      card1.appendChild(title);
+      card1.appendChild(st);
+      card1.appendChild(tot);
+
+      var card2 = doc.createElement('div');
+      card2.className = 'card';
+      var copyBtn = doc.createElement('button');
+      copyBtn.id = 'copyBtn';
+      copyBtn.textContent = '표 전체 복사(클립보드)';
+      var copyHint = doc.createElement('div');
+      copyHint.style.marginTop = '8px';
+      copyHint.style.color = '#666';
+      copyHint.style.fontSize = '12px';
+      copyHint.textContent = '복사 후 스프레드시트/문서에 붙여넣기 가능';
+      card2.appendChild(copyBtn);
+      card2.appendChild(copyHint);
+
+      top.appendChild(card1);
+      top.appendChild(card2);
+
+      doc.body.appendChild(top);
+
+      // 테이블
+      var table = doc.createElement('table');
+      table.id = 'tbl';
+
+      var thead = doc.createElement('thead');
+      var trh = doc.createElement('tr');
+      ['day','seq','장소','주소(도로명)','타임라인','체류(분)','이동(분,buf)','거리(km)','경고']
+        .forEach(function(h){
+          var th = doc.createElement('th');
+          th.textContent = h;
+          trh.appendChild(th);
+        });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      var tbody = doc.createElement('tbody');
+      rows.forEach(function(r){
+        var tr = doc.createElement('tr');
+
+        function tdText(text, color){
+          var td = doc.createElement('td');
+          if (color) td.style.color = color;
+          td.textContent = String(text ?? '');
+          return td;
+        }
+
+        tr.appendChild(tdText(r.day));
+        tr.appendChild(tdText(r.seq));
+        tr.appendChild(tdText(r.place));
+        tr.appendChild(tdText(r.road_address || '', '#666'));
+        tr.appendChild(tdText(String(r.arrive || '') + '~' + String(r.depart || '')));
+        tr.appendChild(tdText(r.stay_min));
+        tr.appendChild(tdText(r.drive_from_prev_min_buf || ''));
+        tr.appendChild(tdText(r.leg_dist_km || ''));
+        tr.appendChild(tdText(r.warning || '', '#b00'));
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      doc.body.appendChild(table);
+
+      // 복사 이벤트
+      copyBtn.addEventListener('click', async function(){
+        try{
+          var tsv = tableToTSV(doc, table);
+          await w.navigator.clipboard.writeText(tsv);
+          w.alert('복사 완료!');
+        } catch(e){
+          w.alert('복사 실패: 브라우저 권한/HTTPS 환경을 확인하세요.');
+        }
+      });
+
+    } catch(e){
       alert(e.message || String(e));
     } finally {
       setBusy(false);
@@ -402,13 +488,15 @@
   daySelect.addEventListener('change', loadAndRender);
 
   // 부팅: SDK 준비 대기 후 자동 로드
-  const boot = setInterval(() => {
-    if (ensureKakaoReady()) {
+  var boot = setInterval(function(){
+    if (ensureKakaoReady()){
       clearInterval(boot);
       hint.textContent = '✅ SDK 준비됨';
       loadAndRender();
     }
   }, 200);
+})();
 </script>
 </body>
 </html>
+
