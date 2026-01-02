@@ -628,6 +628,7 @@
   
   // 샘플 시트 보기
   templateBtn.addEventListener('click', async () => {
+    console.log('click');
     setBusy(true);
     try {
       const j = await callJsonp('templateInfo', {}, 30000);
