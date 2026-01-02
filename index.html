@@ -163,6 +163,10 @@
 <header>
   <div class="row">
     <strong>Tour Route Tool</strong>
+    <button id="templateBtn">샘플 시트 보기</button>
+    <button id="copyBtn">내 시트 만들기(복사)</button>
+    <button id="openMySheetBtn">내 시트 열기</button>
+    <button id="setActiveBtn">내 시트 연결(SSID 입력)</button>
 
     <button id="initBtn">초기화(팀 시트 생성/연결)</button>
     <button id="openSheetBtn">스프레드시트 열기</button>
@@ -612,6 +616,86 @@
     alert('먼저 "지도 새로고침"으로 데이터를 불러오세요.');
     return;
   }
+
+  const templateBtn = document.getElementById('templateBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const openMySheetBtn = document.getElementById('openMySheetBtn');
+  const setActiveBtn = document.getElementById('setActiveBtn');
+  
+  // JSONP는 오래 걸릴 수 있어서 기본 90초 권장
+  async function callJsonp(action, params={}, timeoutMs=90000){
+    return await jsonp(action, params, { timeoutMs });
+  }
+  
+  // 샘플 시트 보기
+  templateBtn.addEventListener('click', async () => {
+    setBusy(true);
+    try {
+      const j = await callJsonp('templateInfo', {}, 30000);
+      if (!j.ok) return alert(j.error || 'templateInfo 실패');
+      // 팝업 차단 회피: 새탭이 막히면 같은 탭 이동도 OK
+      window.open(j.templateUrl, '_blank');
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  });
+  
+  // 내 시트 만들기(복사)  ✅ 핵심
+  copyBtn.addEventListener('click', async () => {
+    setBusy(true);
+    try {
+      const j = await callJsonp('makeCopy', {}, 120000); // 복사/권한 승인으로 더 길 수 있음
+      if (!j.ok) return alert(j.error || '복사 실패');
+  
+      alert(`내 시트 생성 완료!\n${j.name}\n${j.spreadsheetUrl}`);
+      // 생성 직후 바로 열기(팝업 막히면 아래처럼 location.href로)
+      window.open(j.spreadsheetUrl, '_blank');
+      // 또는: window.location.href = j.spreadsheetUrl;
+  
+      // 지도 갱신 등 하고 싶으면 여기서 loadMap() 호출
+    } catch (e) {
+      // 권한 승인 필요 시 안내
+      alert((e.message || String(e)) + '\n\n처음 1회 권한 승인이 필요할 수 있어요.\nGAS URL에서 action=authorize를 열어 승인 후 다시 시도해 주세요.');
+    } finally {
+      setBusy(false);
+    }
+  });
+  
+  // 내 시트 열기 (active 기준)
+  openMySheetBtn.addEventListener('click', async () => {
+    setBusy(true);
+    try {
+      const j = await callJsonp('openSheet', {}, 30000);
+      if (!j.ok) return alert(j.error || '내 시트가 없습니다. "내 시트 만들기(복사)"부터 해주세요.');
+  
+      // 시크릿/팝업 차단 회피: 같은 탭 이동 추천
+      window.location.href = j.spreadsheetUrl;
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  });
+  
+  // 내 시트 연결(SSID 입력) - 사용자가 Drive에서 수동 복사한 경우
+  setActiveBtn.addEventListener('click', async () => {
+    const ssid = prompt('연결할 스프레드시트 ID를 입력하세요\n(https://docs.google.com/spreadsheets/d/XXXX/edit 에서 XXXX)');
+    if (!ssid) return;
+  
+    setBusy(true);
+    try {
+      const j = await callJsonp('setActive', { ssid }, 60000);
+      if (!j.ok) return alert(j.error || 'setActive 실패');
+      alert(`연결 완료: ${j.name}`);
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  });
+
 
   // ✅ 상단/테이블 공통 기준 시간 (여기 1번만 정의)
   const startTime = String(lastData.start_time || '08:30').trim();
