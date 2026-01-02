@@ -8,21 +8,13 @@
   <style>
     body { margin:0; font-family: system-ui, -apple-system, sans-serif; }
     header {
-      position: sticky;
-      top:0;
-      z-index:10;
-      padding:12px 14px;
-      border-bottom:1px solid #eee;
-      background:#fff;
+      position: sticky; top:0; z-index:10;
+      padding:12px 14px; border-bottom:1px solid #eee; background:#fff;
     }
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; width:100%; }
     #map { width:100%; height: calc(100vh - 74px); }
     button, select {
-      padding:8px 10px;
-      border:1px solid #ddd;
-      border-radius:10px;
-      background:#fff;
-      cursor:pointer;
+      padding:8px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer;
     }
     button:disabled, select:disabled { opacity:.5; cursor:not-allowed; }
     .hint { color:#666; font-size:12px; margin-left:auto; }
@@ -30,25 +22,16 @@
     .btn-warn { border-color:#cc3; }
   </style>
 
-  <!-- Kakao Maps SDK (동적으로 삽입) -->
+  <!-- ✅ Kakao Maps SDK: async 동적삽입 X (기본 방식) -->
   <script>
+    // ✅ 여기 3개만 너 값으로 바꿔
     window.CONFIG = {
       GAS_WEBAPP_URL: "https://script.google.com/macros/s/AKfycbxY6HaGBb0DgxtiKO3jsUwEJssi2at3tN5pNtPtLwIocLFuW2sJnHk6TPSBsCwfXNX_BQ/exec",
       TEAM_API_TOKEN: "tourtool_2025_wjogpgpwglksjw2362dfd",
       KAKAO_JS_KEY: "2f4cbe8e415272a7af886adf1944dd64",
     };
-
-    (function loadKakaoSDK(){
-      var s = document.createElement('script');
-      s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(window.CONFIG.KAKAO_JS_KEY);
-      s.async = true;
-      s.onload = function(){ /* ready check는 boot에서 */ };
-      s.onerror = function(){
-        console.warn('Kakao SDK load error');
-      };
-      document.head.appendChild(s);
-    })();
   </script>
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2f4cbe8e415272a7af886adf1944dd64"></script>
 </head>
 
 <body>
@@ -57,6 +40,7 @@
     <strong>Tour Route Tool</strong>
 
     <button id="initBtn" class="btn-warn">초기화(init)</button>
+    <button id="openSheetBtn">Stops 시트 열기</button>
     <button id="recalcBtn" class="btn-primary">경로 계산(recalc)</button>
 
     <select id="daySelect">
@@ -66,7 +50,7 @@
     <button id="reloadBtn">지도 새로고침</button>
     <button id="timelineBtn">타임라인 보기</button>
 
-    <span class="hint" id="hint">SDK 로딩 대기…</span>
+    <span class="hint" id="hint">대기중…</span>
   </div>
 </header>
 
@@ -74,21 +58,19 @@
 
 <script>
 (function(){
-  var CONFIG = window.CONFIG;
+  const CONFIG = window.CONFIG;
 
-  function $(id){ return document.getElementById(id); }
-
-  var initBtn = $('initBtn');
-  var recalcBtn = $('recalcBtn');
-  var reloadBtn = $('reloadBtn');
-  var timelineBtn = $('timelineBtn');
-  var daySelect = $('daySelect');
-  var hint = $('hint');
+  const initBtn = document.getElementById('initBtn');
+  const openSheetBtn = document.getElementById('openSheetBtn');
+  const recalcBtn = document.getElementById('recalcBtn');
+  const reloadBtn = document.getElementById('reloadBtn');
+  const timelineBtn = document.getElementById('timelineBtn');
+  const daySelect = document.getElementById('daySelect');
+  const hint = document.getElementById('hint');
 
   function setBusy(b){
-    [initBtn, recalcBtn, reloadBtn, timelineBtn, daySelect].forEach(function(el){
-      if (el) el.disabled = !!b;
-    });
+    [initBtn, openSheetBtn, recalcBtn, reloadBtn, timelineBtn, daySelect]
+      .forEach(el => el && (el.disabled = !!b));
   }
 
   function ensureKakaoReady(){
@@ -104,29 +86,26 @@
       .replaceAll("'","&#39;");
   }
 
-  // ✅ JSONP (90초)
-  function jsonp(action, params){
-    params = params || {};
-    return new Promise(function(resolve, reject){
-      var cb = 'cb' + Date.now() + Math.floor(Math.random()*1e6);
-      var url = new URL(CONFIG.GAS_WEBAPP_URL);
+  // ✅ JSONP (기본 안정 패턴, 60초)
+  function jsonp(action, params = {}) {
+    return new Promise((resolve, reject) => {
+      const cb = `__cb_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
+      const url = new URL(CONFIG.GAS_WEBAPP_URL);
       url.searchParams.set('action', action);
       url.searchParams.set('token', CONFIG.TEAM_API_TOKEN);
       url.searchParams.set('callback', cb);
-
-      Object.keys(params).forEach(function(k){
-        var v = params[k];
+      Object.entries(params).forEach(([k,v]) => {
         if (v === undefined || v === null) return;
         url.searchParams.set(k, String(v));
       });
 
-      var script = document.createElement('script');
-      var done = false;
+      const script = document.createElement('script');
+      let done = false;
 
-      var timer = setTimeout(function(){
+      const timer = setTimeout(() => {
         cleanup();
         reject(new Error('JSONP timeout'));
-      }, 90000);
+      }, 60000);
 
       function cleanup(){
         if (done) return;
@@ -136,123 +115,109 @@
         if (script && script.parentNode) script.parentNode.removeChild(script);
       }
 
-      window[cb] = function(data){
-        cleanup();
-        resolve(data);
-      };
-
-      script.onerror = function(){
-        cleanup();
-        reject(new Error('JSONP load error'));
-      };
-
+      window[cb] = (data) => { cleanup(); resolve(data); };
+      script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
       script.src = url.toString();
       document.body.appendChild(script);
     });
   }
 
-  // 지도 렌더링 상태
-  var map = null;
-  var overlays = [];  // marker + customOverlay
-  var polylines = [];
+  // ========= map render state =========
+  let map = null;
+  let markers = [];
+  let overlays = [];
+  let polylines = [];
+
+  const DAY_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2'];
 
   function clearMap(){
-    overlays.forEach(function(o){
-      try { o.setMap(null); } catch(e){}
-    });
+    markers.forEach(m => m.setMap(null));
+    overlays.forEach(o => o.setMap(null));
+    polylines.forEach(p => p.setMap(null));
+    markers = [];
     overlays = [];
-    polylines.forEach(function(p){
-      try { p.setMap(null); } catch(e){}
-    });
     polylines = [];
   }
 
   function ensureMap(center){
-    if (!map) {
-      map = new kakao.maps.Map(document.getElementById('map'), { center: center, level: 7 });
-    } else {
-      map.setCenter(center);
-    }
+    if (!map) map = new kakao.maps.Map(document.getElementById('map'), { center, level: 7 });
+    else map.setCenter(center);
   }
 
-  var DAY_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2'];
+  function fitBounds(stops){
+    const bounds = new kakao.maps.LatLngBounds();
+    stops.forEach(s => bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)));
+    map.setBounds(bounds);
+  }
 
-  function drawStopsMarkers(stops){
-    stops.forEach(function(s){
-      var pos = new kakao.maps.LatLng(s.lat, s.lng);
+  function drawMarkers(stops){
+    stops.forEach(s => {
+      const pos = new kakao.maps.LatLng(s.lat, s.lng);
+      const marker = new kakao.maps.Marker({ position: pos, map });
+      markers.push(marker);
 
-      var marker = new kakao.maps.Marker({ position: pos, map: map });
-      overlays.push(marker);
-
-      var content =
-        '<div style="' +
-          'background:#fff;border:1px solid #ddd;border-radius:999px;' +
-          'padding:4px 8px;box-shadow:0 2px 8px rgba(0,0,0,.08);' +
-          'font-size:12px;white-space:nowrap;' +
-        '">' +
-          '<b style="margin-right:6px;">' + escapeHtml(s.seq) + '</b>' +
-          escapeHtml(s.name) +
-        '</div>';
-
-      var overlay = new kakao.maps.CustomOverlay({
-        position: pos,
-        content: content,
-        yAnchor: 1.3
-      });
+      // 숫자+장소명 라벨
+      const content =
+        `<div style="background:#fff;border:1px solid #ddd;border-radius:999px;padding:4px 8px;
+                    box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:12px;white-space:nowrap;">
+          <b style="margin-right:6px;">${escapeHtml(s.seq)}</b>${escapeHtml(s.name)}
+        </div>`;
+      const overlay = new kakao.maps.CustomOverlay({ position: pos, content, yAnchor: 1.35 });
       overlay.setMap(map);
       overlays.push(overlay);
     });
   }
 
-  function drawRoutePolylines(pathsByDay, selectedDay){
-    var days = Object.keys(pathsByDay || {}).sort(function(a,b){ return Number(a)-Number(b); });
-    days.forEach(function(dy){
+  function drawRoute(pathsByDay, selectedDay){
+    const days = Object.keys(pathsByDay || {}).sort((a,b)=>Number(a)-Number(b));
+    days.forEach(dy => {
       if (selectedDay && String(selectedDay) !== String(dy)) return;
-      var pts = pathsByDay[dy] || [];
+      const pts = pathsByDay[dy] || [];
       if (!pts.length) return;
 
-      var path = pts.map(function(p){ return new kakao.maps.LatLng(p.lat, p.lng); });
-      var color = DAY_COLORS[(Number(dy)-1) % DAY_COLORS.length];
+      const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+      const color = DAY_COLORS[(Number(dy)-1) % DAY_COLORS.length];
 
-      var poly = new kakao.maps.Polyline({
-        path: path,
-        strokeWeight: 5,
-        strokeOpacity: 0.8,
-        strokeColor: color,
-        strokeStyle: 'solid'
+      const poly = new kakao.maps.Polyline({
+        path, strokeWeight: 5, strokeOpacity: 0.8, strokeColor: color, strokeStyle: 'solid'
       });
       poly.setMap(map);
       polylines.push(poly);
     });
   }
 
-  function fitBoundsFromStops(stops){
-    var bounds = new kakao.maps.LatLngBounds();
-    stops.forEach(function(s){
-      bounds.extend(new kakao.maps.LatLng(s.lat, s.lng));
-    });
-    map.setBounds(bounds);
-  }
-
   function populateDaySelect(days){
     while (daySelect.options.length > 1) daySelect.remove(1);
-    (days || []).forEach(function(dy){
-      var opt = document.createElement('option');
+    (days || []).forEach(dy => {
+      const opt = document.createElement('option');
       opt.value = String(dy);
-      opt.textContent = 'day ' + dy;
+      opt.textContent = `day ${dy}`;
       daySelect.appendChild(opt);
     });
   }
 
   async function handleInit(){
     setBusy(true);
-    try {
-      var j = await jsonp('init');
+    try{
+      const j = await jsonp('init');
       if (!j.ok) return alert(j.error || 'init 실패');
-      alert('팀 시트 연결 완료!\n' + j.name + '\n' + j.spreadsheetUrl);
-    } catch(e){
+      alert(`연결 완료!\n${j.name}\n${j.spreadsheetUrl}`);
+    }catch(e){
       alert(e.message || String(e));
-    } finally {
+    }finally{
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenSheet(){
+    setBusy(true);
+    try{
+      const j = await jsonp('openSheet'); // url 반환
+      if (!j.ok) return alert(j.error || 'openSheet 실패');
+      window.open(j.spreadsheetUrl, '_blank');
+    }catch(e){
+      alert(e.message || String(e));
+    }finally{
       setBusy(false);
     }
   }
@@ -260,12 +225,12 @@
   async function handleRecalc(){
     setBusy(true);
     try{
-      var j = await jsonp('recalc');
+      const j = await jsonp('recalc');
       if (!j.ok) return alert(j.error || 'recalc 실패');
-      alert('완료! 이제 지도 새로고침/타임라인 보기를 누르세요.');
-    } catch(e){
+      alert('완료! 지도 새로고침/타임라인 보기로 확인하세요.');
+    }catch(e){
       alert(e.message || String(e));
-    } finally {
+    }finally{
       setBusy(false);
     }
   }
@@ -274,99 +239,88 @@
     setBusy(true);
     try{
       if (!ensureKakaoReady()){
-        hint.textContent = 'Kakao Maps SDK 로딩 대기…(도메인/JS 키 확인)';
+        hint.textContent = '⚠️ Kakao Maps SDK 미준비 (JS 키/도메인 확인)';
         return;
       }
-      hint.textContent = '데이터 로딩…';
+      hint.textContent = '로딩…';
 
-      var day = daySelect.value || '';
-      var data = await jsonp('data', { day: day });
-
-      if (!data.ok){
-        alert(data.error || 'data 실패');
+      const day = daySelect.value || '';
+      const data = await jsonp('data', { day });
+      if (!data.ok) {
         hint.textContent = '⚠️ 데이터 없음 (init/recalc 필요)';
-        return;
+        return alert(data.error || 'data 실패');
       }
 
       populateDaySelect(data.days || []);
 
-      var stops = data.stops || [];
-      if (!stops.length){
-        alert('Stops 좌표가 없습니다.\n1) Stops 입력\n2) recalc\n3) 다시 시도');
-        return;
+      const stops = data.stops || [];
+      if (!stops.length) {
+        hint.textContent = '⚠️ Stops 없음';
+        return alert('Stops 좌표가 없습니다. Stops 입력 후 recalc 해주세요.');
       }
 
       clearMap();
       ensureMap(new kakao.maps.LatLng(stops[0].lat, stops[0].lng));
-      drawStopsMarkers(stops);
+      drawMarkers(stops);
 
-      // 도로형 route
-      var route = await jsonp('route', { day: day });
-      if (route && route.ok){
-        drawRoutePolylines(route.pathsByDay || {}, day);
-      }
+      // 도로 라인
+      const route = await jsonp('route', { day });
+      if (route && route.ok) drawRoute(route.pathsByDay || {}, day);
 
-      fitBoundsFromStops(stops);
-      hint.textContent = '✅ 로드 완료';
-    } catch(e){
-      alert(e.message || String(e));
+      fitBounds(stops);
+      hint.textContent = '✅ 완료';
+    }catch(e){
       hint.textContent = '⚠️ 오류';
-    } finally {
+      alert(e.message || String(e));
+    }finally{
       setBusy(false);
     }
   }
 
-  // ==========================
-  // 팝업 (DOM 조립 방식: 백틱/템플릿 리터럴 문제 원천 제거)
-  // ==========================
-  function formatMin(min){
-    var m = Number(min || 0);
-    var h = Math.floor(m / 60);
-    var mm = m % 60;
-    return h ? (h + '시간 ' + mm + '분') : (mm + '분');
+  function minText(min){
+    const m = Number(min||0);
+    const h = Math.floor(m/60);
+    const mm = m%60;
+    return h ? `${h}시간 ${mm}분` : `${mm}분`;
   }
 
-  function tableToTSV(doc, tableEl){
-    var rows = Array.from(tableEl.querySelectorAll('tr'));
-    return rows.map(function(tr){
-      return Array.from(tr.children).map(function(td){
-        return td.innerText.replace(/\s+/g,' ').trim();
-      }).join('\t');
-    }).join('\n');
+  function tableToTSV(table){
+    const rows = Array.from(table.querySelectorAll('tr'));
+    return rows.map(tr =>
+      Array.from(tr.children).map(td => td.innerText.replace(/\s+/g,' ').trim()).join('\t')
+    ).join('\n');
   }
 
   async function openTimelinePopup(){
     setBusy(true);
     try{
-      var day = daySelect.value || '';
-      var j = await jsonp('timeline', { day: day });
+      const day = daySelect.value || '';
+      const j = await jsonp('timeline', { day });
       if (!j.ok) return alert(j.error || 'timeline 실패');
 
-      var rows = j.rows || [];
+      const rows = j.rows || [];
       if (!rows.length) return alert('Timeline 데이터가 없습니다. recalc 먼저 실행하세요.');
 
-      var totalsByDay = j.totalsByDay || {};
-      var startTime = (j.config && j.config.start_time) ? String(j.config.start_time) : '08:30';
+      const totalsByDay = j.totalsByDay || {};
+      const startTime = (j.config && j.config.start_time) ? String(j.config.start_time) : '08:30';
 
-      var safeDayTitle = day ? ('day ' + day) : '전체 day';
+      const title = day ? `day ${day}` : '전체 day';
 
-      var totalText = day
-        ? formatMin(totalsByDay[String(day)] || 0)
-        : Object.keys(totalsByDay).sort(function(a,b){ return Number(a)-Number(b); })
-            .map(function(dy){ return 'day ' + dy + ': ' + formatMin(totalsByDay[dy] || 0); }).join(' / ');
+      const totalText = day
+        ? minText(totalsByDay[String(day)] || 0)
+        : Object.keys(totalsByDay).sort((a,b)=>Number(a)-Number(b))
+            .map(dy => `day ${dy}: ${minText(totalsByDay[dy]||0)}`).join(' / ');
 
-      var w = window.open('', '_blank', 'width=980,height=760');
-      if (!w) return alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도하세요.');
+      const w = window.open('', '_blank', 'width=980,height=760');
+      if (!w) return alert('팝업 차단됨: 팝업 허용 후 다시 시도');
 
-      var doc = w.document;
+      const doc = w.document;
       doc.open();
-      doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+      doc.write('<!doctype html><html><head><meta charset="utf-8"><title></title></head><body></body></html>');
       doc.close();
+      doc.title = `Timeline - ${title}`;
 
-      doc.title = 'Timeline - ' + safeDayTitle;
-
-      // 스타일
-      var style = doc.createElement('style');
+      const style = doc.createElement('style');
       style.textContent =
         'body{font-family:system-ui,-apple-system,sans-serif;margin:16px;}' +
         '.top{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;}' +
@@ -377,126 +331,83 @@
         'button{padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;}';
       doc.head.appendChild(style);
 
-      // 상단 카드
-      var top = doc.createElement('div');
-      top.className = 'top';
-
-      var card1 = doc.createElement('div');
-      card1.className = 'card';
-
-      var title = doc.createElement('div');
-      var b = doc.createElement('b');
-      b.textContent = safeDayTitle + ' 타임라인';
-      title.appendChild(b);
-
-      var st = doc.createElement('div');
-      st.style.marginTop = '6px';
-      st.style.color = '#666';
-      st.innerHTML = '출발 시작시간(Config.start_time): <b>' + escapeHtml(startTime) + '</b>';
-
-      var tot = doc.createElement('div');
-      tot.style.marginTop = '6px';
-      tot.style.color = '#111';
-      tot.innerHTML = '체류시간 포함 총 소요: <b>' + escapeHtml(totalText) + '</b>';
-
-      card1.appendChild(title);
-      card1.appendChild(st);
-      card1.appendChild(tot);
-
-      var card2 = doc.createElement('div');
-      card2.className = 'card';
-      var copyBtn = doc.createElement('button');
-      copyBtn.id = 'copyBtn';
-      copyBtn.textContent = '표 전체 복사(클립보드)';
-      var copyHint = doc.createElement('div');
-      copyHint.style.marginTop = '8px';
-      copyHint.style.color = '#666';
-      copyHint.style.fontSize = '12px';
-      copyHint.textContent = '복사 후 스프레드시트/문서에 붙여넣기 가능';
-      card2.appendChild(copyBtn);
-      card2.appendChild(copyHint);
-
-      top.appendChild(card1);
-      top.appendChild(card2);
-
+      const top = doc.createElement('div'); top.className = 'top';
+      const c1 = doc.createElement('div'); c1.className='card';
+      c1.innerHTML =
+        `<div><b>${escapeHtml(title)} 타임라인</b></div>
+         <div style="margin-top:6px;color:#666;">출발 시작시간: <b>${escapeHtml(startTime)}</b></div>
+         <div style="margin-top:6px;color:#111;">체류시간 포함 총 소요: <b>${escapeHtml(totalText)}</b></div>`;
+      const c2 = doc.createElement('div'); c2.className='card';
+      const btn = doc.createElement('button'); btn.textContent='표 전체 복사(클립보드)';
+      c2.appendChild(btn);
+      top.appendChild(c1); top.appendChild(c2);
       doc.body.appendChild(top);
 
-      // 테이블
-      var table = doc.createElement('table');
-      table.id = 'tbl';
+      const table = doc.createElement('table');
+      table.innerHTML =
+        `<thead><tr>
+          <th>day</th><th>seq</th><th>장소</th><th>주소(도로명)</th>
+          <th>타임라인</th><th>체류(분)</th><th>이동(분,buf)</th><th>거리(km)</th><th>경고</th>
+        </tr></thead>`;
+      const tbody = doc.createElement('tbody');
 
-      var thead = doc.createElement('thead');
-      var trh = doc.createElement('tr');
-      ['day','seq','장소','주소(도로명)','타임라인','체류(분)','이동(분,buf)','거리(km)','경고']
-        .forEach(function(h){
-          var th = doc.createElement('th');
-          th.textContent = h;
-          trh.appendChild(th);
+      rows.forEach(r => {
+        const tr = doc.createElement('tr');
+        const tds = [
+          r.day, r.seq, r.place, (r.road_address||''),
+          `${r.arrive||''}~${r.depart||''}`, r.stay_min,
+          (r.drive_from_prev_min_buf||''), (r.leg_dist_km||''), (r.warning||'')
+        ];
+        tds.forEach((v, i) => {
+          const td = doc.createElement('td');
+          td.textContent = String(v ?? '');
+          if (i === 3) td.style.color = '#666';
+          if (i === 8) td.style.color = '#b00';
+          tr.appendChild(td);
         });
-      thead.appendChild(trh);
-      table.appendChild(thead);
-
-      var tbody = doc.createElement('tbody');
-      rows.forEach(function(r){
-        var tr = doc.createElement('tr');
-
-        function tdText(text, color){
-          var td = doc.createElement('td');
-          if (color) td.style.color = color;
-          td.textContent = String(text ?? '');
-          return td;
-        }
-
-        tr.appendChild(tdText(r.day));
-        tr.appendChild(tdText(r.seq));
-        tr.appendChild(tdText(r.place));
-        tr.appendChild(tdText(r.road_address || '', '#666'));
-        tr.appendChild(tdText(String(r.arrive || '') + '~' + String(r.depart || '')));
-        tr.appendChild(tdText(r.stay_min));
-        tr.appendChild(tdText(r.drive_from_prev_min_buf || ''));
-        tr.appendChild(tdText(r.leg_dist_km || ''));
-        tr.appendChild(tdText(r.warning || '', '#b00'));
-
         tbody.appendChild(tr);
       });
+
       table.appendChild(tbody);
       doc.body.appendChild(table);
 
-      // 복사 이벤트
-      copyBtn.addEventListener('click', async function(){
+      btn.addEventListener('click', async () => {
         try{
-          var tsv = tableToTSV(doc, table);
+          const tsv = tableToTSV(table);
           await w.navigator.clipboard.writeText(tsv);
           w.alert('복사 완료!');
-        } catch(e){
-          w.alert('복사 실패: 브라우저 권한/HTTPS 환경을 확인하세요.');
+        }catch(e){
+          w.alert('복사 실패: 브라우저 권한/HTTPS 확인');
         }
       });
 
-    } catch(e){
+    }catch(e){
       alert(e.message || String(e));
-    } finally {
+    }finally{
       setBusy(false);
     }
   }
 
-  // 이벤트 바인딩
   initBtn.addEventListener('click', handleInit);
+  openSheetBtn.addEventListener('click', handleOpenSheet);
   recalcBtn.addEventListener('click', handleRecalc);
   reloadBtn.addEventListener('click', loadAndRender);
   timelineBtn.addEventListener('click', openTimelinePopup);
   daySelect.addEventListener('change', loadAndRender);
 
-  // 부팅: SDK 준비 대기 후 자동 로드
-  var boot = setInterval(function(){
-    if (ensureKakaoReady()){
-      clearInterval(boot);
-      hint.textContent = '✅ SDK 준비됨';
-      loadAndRender();
-    }
-  }, 200);
+  // boot
+  if (!CONFIG.KAKAO_JS_KEY || CONFIG.KAKAO_JS_KEY === 'YOUR_KAKAO_JS_KEY') {
+    hint.textContent = '⚠️ KAKAO_JS_KEY 설정 필요';
+  } else if (!ensureKakaoReady()) {
+    hint.textContent = 'SDK 로딩 중…';
+    const t = setInterval(() => {
+      if (ensureKakaoReady()) { clearInterval(t); hint.textContent='✅ 준비됨'; loadAndRender(); }
+    }, 200);
+  } else {
+    hint.textContent='✅ 준비됨';
+    loadAndRender();
+  }
 })();
 </script>
 </body>
 </html>
-
