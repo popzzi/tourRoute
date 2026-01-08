@@ -410,6 +410,66 @@
         setBusy(false);
       }
     }
+    /* 실제 도로 곡선 그리기 ----------------
+    (1) polyline → LatLng 변환 */
+    function decodeVertexes(vertexStr) {
+      const arr = vertexStr.split(',').map(Number);
+      const path = [];
+    
+      for (let i = 0; i < arr.length; i += 2) {
+        path.push(new kakao.maps.LatLng(arr[i + 1], arr[i]));
+      }
+      return path;
+    }
+    // (2) Routes 시트 기반으로 지도에 표시
+    function drawRoutes(routes) {
+      routes.forEach(r => {
+        if (!r.polyline) return;
+    
+        const path = decodeVertexes(r.polyline);
+    
+        new kakao.maps.Polyline({
+          map,
+          path,
+          strokeWeight: 5,
+          strokeColor: '#2563eb',
+          strokeOpacity: 0.9,
+          strokeStyle: 'solid'
+        });
+      });
+    }
+    // (3) 서버에서 Routes 읽기
+    const API = CONFIG.GAS_WEBAPP_URL;
+    async function loadRoutes() {
+      const res = await fetch(`${API}?action=getRoutes`);
+      const routes = await res.json();
+      drawRoutes(routes);
+    }
+
+    function decodeVertexes(str) {
+      const nums = str.split(',').map(Number);
+      const path = [];
+    
+      for (let i = 0; i < nums.length; i += 2) {
+        path.push(new kakao.maps.LatLng(nums[i + 1], nums[i]));
+      }
+      return path;
+    }
+    
+    function drawRoutes(routes) {
+      routes.forEach(r => {
+        const path = decodeVertexes(r.polyline);
+    
+        new kakao.maps.Polyline({
+          map,
+          path,
+          strokeWeight: 5,
+          strokeColor: '#2563eb',
+          strokeOpacity: 0.9,
+          strokeStyle: 'solid'
+        });
+      });
+    }
 
     function parseHHMMToMin(hhmm){
       const m = String(hhmm || '').trim().match(/^(\d{1,2}):(\d{2})$/);
