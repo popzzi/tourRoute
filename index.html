@@ -298,7 +298,7 @@
       });
     }
 
-    function drawPolylines(pathsByDayObj) {
+    function drawPolylines(pathsByDayObj) { console.log(pathsByDayObj, "drawPolylines");
       Object.entries(pathsByDayObj || {}).forEach(([day, pts]) => {
         if (!pts || !pts.length) return;
         const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
@@ -333,7 +333,7 @@
       else daySelect.value = '';
     }
 
-    async function refreshAll() {
+    async function refreshAll() { //지도 새로고침
       setBusy(true);
       hint.textContent = '데이터 로딩…';
 
@@ -422,9 +422,9 @@
       return path;
     }
     // (2) Routes 시트 기반으로 지도에 표시
-    function drawRoutes(routes) {
+    function drawRoutes(routes) { console.log(routes, "polyline이 있는가?");
       routes.forEach(r => {
-        if (!r.polyline) return;
+        if (!r.polyline) return; // 직선 아닌 곡선 ??
     
         const path = decodeVertexes(r.polyline);
     
@@ -438,6 +438,7 @@
         });
       });
     }
+    
     // (3) 서버에서 Routes 읽기
     const API = CONFIG.GAS_WEBAPP_URL;
     async function loadRoutes() {
@@ -454,21 +455,6 @@
         path.push(new kakao.maps.LatLng(nums[i + 1], nums[i]));
       }
       return path;
-    }
-    
-    function drawRoutes(routes) {
-      routes.forEach(r => {
-        const path = decodeVertexes(r.polyline);
-    
-        new kakao.maps.Polyline({
-          map,
-          path,
-          strokeWeight: 5,
-          strokeColor: '#2563eb',
-          strokeOpacity: 0.9,
-          strokeStyle: 'solid'
-        });
-      });
     }
 
     function parseHHMMToMin(hhmm){
