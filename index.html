@@ -349,7 +349,7 @@
         const route = await jsonp('route', { day: daySelect.value || '' }, 20000);
         if (!route.ok) throw new Error(route.error || 'route failed');
         
-        pathsByDay = route.pathsByDay || {};
+        const pathsByDay = route.pathsByDay || {};
         console.log(pathsByDay, 'pathsByDay 체크');
 
         clearMap();
