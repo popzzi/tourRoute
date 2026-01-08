@@ -302,7 +302,7 @@
       Object.entries(pathsByDayObj || {}).forEach(([day, pts]) => {
         if (!pts || !pts.length) return;
         const path = pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
-
+        console.log(path , 'path');
         const pl = new kakao.maps.Polyline({
           path,
           strokeWeight: 5,
