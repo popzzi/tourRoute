@@ -348,8 +348,9 @@
         // route는 도로형 polyline
         const route = await jsonp('route', { day: daySelect.value || '' }, 20000);
         if (!route.ok) throw new Error(route.error || 'route failed');
-        console.log(route, 'route값, pathsByDay 체크');
+        
         pathsByDay = route.pathsByDay || {};
+        console.log(pathsByDay, 'pathsByDay 체크');
 
         clearMap();
 
